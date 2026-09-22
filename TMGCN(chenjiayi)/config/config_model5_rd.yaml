@@ -1,0 +1,94 @@
+# ------------------------------------------------------------------
+# Config for TMGCN + Reply Structure Knowledge Distillation
+# Entry: python main_graph.py config/config_model5_rd.yaml
+# ------------------------------------------------------------------
+#
+# 先在 models/__init__.py、datasets/__init__.py 改成 rd 版本，再跑本配置。
+# 方法开关用 0/1，不在 init 里选。
+#
+# 消融快捷开关 reply_ablation（会覆盖下面三个细开关）：
+#   A  Original TMGCN
+#   B  TMGCN + Student Reply Predictor（用 P_S 建图，不加 KD）
+#   C  TMGCN + LLM Reply KD（原 candidate 图 + L_reply_KD）
+#   D  TMGCN + Soft Reply Graph（直接用 Teacher P_T 当边权）
+#   E  Full model（Student 图 + LLM KD）
+# 留空 "" 则按 reply_distillation / use_reply_kd / use_soft_reply_graph /
+# reply_graph_source 的字面值生效。
+# ------------------------------------------------------------------
+
+# data: files produced by `python graph/offline/build_embeddings.py --stage dedup`
+# and the npy produced by `--stage embed` (row index == global utterance id).
+train_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/train_data.json
+dev_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/dev_data.json
+test_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/test_data.json
+embedding_npy: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/embeddings.npy
+target_knowledge_npy: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/target_knowledge.npy
+
+# model
+hidden_size: 768
+num_classes: 3
+dropout: 0.1
+input_dropout: 0.0
+num_layers: 2
+
+# v5 PyG options
+hypergraph_attention: true
+rgcn_num_bases: 0
+
+# v5 target-side stance semantic grounding
+use_grounding: true
+use_speaker: 1
+use_dialogue: 1
+use_temporal: 1
+use_reply: 1
+
+# v5 representation-level contrastive regularization
+cl_lambda: 1.0
+cl_mode: augment
+cl_pos_weight_same_target: 1.0
+cl_pos_weight_diff_target: 0.5
+cl_temperature: 0.2
+cl_feat_mask_rate: 0.2
+cl_noise_scale: 0.1
+cl_proj_dim: 128
+
+# graph construction
+bidirectional_temporal: false
+max_nodes_per_target: 0
+
+# ------------------------------------------------------------------
+# Reply Structure Knowledge Distillation
+# ------------------------------------------------------------------
+reply_distillation: 0
+use_reply_distillation: 0
+teacher_path: data/reply_teacher/
+reply_temperature: 3
+reply_kd_lambda: 0.5
+reply_threshold: 0.05
+use_reply_kd: 0
+use_soft_reply_graph: 0
+reply_graph_source: student
+reply_ablation: ""
+
+# training
+epoch_size: 20
+batchsize: 16
+patience: 8
+max_grad_norm: 1.0
+warmup_proportion: 0.2
+warmup_steps: 0
+gradient_accumulation_steps: 1
+adam_epsilon: 1.0e-8
+lr: 1.0e-4
+weight_decay: 1.0e-5
+logging_steps: 10
+
+# runtime
+cuda_index: 0
+seed: 1234
+debug: false
+time: ""
+model_type: GraphTracer_5
+result_root: ./result
+
+metric_on_last_sentence: true

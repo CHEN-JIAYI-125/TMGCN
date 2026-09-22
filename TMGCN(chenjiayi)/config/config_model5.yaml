@@ -1,0 +1,89 @@
+# ------------------------------------------------------------------
+# Config for the PyG stance tracer (graph/models/model_graph_5.py)
+# Entry: python graph/main_graph.py   (model_type: GraphTracer_5)
+# ------------------------------------------------------------------
+
+# data: files produced by `python graph/offline/build_embeddings.py --stage dedup`
+# and the npy produced by `--stage embed` (row index == global utterance id).
+# target_knowledge_npy: frozen per-target stance-view prior from
+# `--stage targets` ([T, 4, D]: raw target; background; favor; against).
+# Leave it empty ("" ) to disable the grounding prior entirely.
+train_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/train_data.json
+dev_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/dev_data.json
+test_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/test_data.json
+embedding_npy: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/embeddings.npy
+target_knowledge_npy: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/target_knowledge.npy
+
+# model
+hidden_size: 768
+num_classes: 3
+dropout: 0.1
+input_dropout: 0.0
+# stacked heterogeneous blocks: >1 lets evidence travel multiple hops and
+# lets the four channels (speaker hyper / dialogue hyper / temporal / reply)
+# interact across rounds
+num_layers: 2
+
+# v5 PyG options
+hypergraph_attention: true   # PyG HypergraphConv with attention
+rgcn_num_bases: 0            # 0 -> no basis decomposition (2 relations)
+
+# v5 target-side stance semantic grounding
+#   h_i = [h_i^tr; h_i^tar; t_i] -> classifier; h_i^tar comes from attention
+#   over the frozen stance views (background / favor / against). Requires
+#   target_knowledge_npy to exist (else the prior is silently disabled and
+#   this flag has no effect).
+use_grounding: true
+use_speaker: 1
+use_dialogue: 1
+use_temporal: 1
+use_reply: 1
+
+# v5 representation-level contrastive regularization (0.0 disables)
+#   cl_mode selects the auxiliary objective over the unique doc-final nodes:
+#     supcon  -> label-aware weighted SupCon (paper L_CL): positives share
+#                the stance label; pairs that also share the target get
+#                cl_pos_weight_same_target, same-stance cross-target pairs
+#                get cl_pos_weight_diff_target; other stances = negatives.
+#     augment -> legacy self-supervised InfoNCE between two corrupted views
+#                of h (the 0.4536 configuration)
+cl_lambda: 1.0               # total loss = CE + cl_lambda * L_CL
+cl_mode: augment
+cl_pos_weight_same_target: 1.0
+cl_pos_weight_diff_target: 0.5
+cl_temperature: 0.2          # contrastive temperature
+# augment-mode knobs (ignored in supcon mode)
+cl_feat_mask_rate: 0.2       # per-dim Bernoulli mask rate on h
+cl_noise_scale: 0.1          # std of additive Gaussian noise on h
+cl_proj_dim: 128             # contrast projection head output dim
+
+# graph construction
+#   0  -> use every target as one full graph (no subgraph sampling)
+#   >0 -> node-centered subgraph cap for oversized targets (training only)
+bidirectional_temporal: false
+max_nodes_per_target: 0
+
+# training
+epoch_size: 20
+batchsize: 16
+patience: 8
+max_grad_norm: 1.0
+warmup_proportion: 0.2
+warmup_steps: 0
+gradient_accumulation_steps: 1
+adam_epsilon: 1.0e-8
+lr: 1.0e-4
+weight_decay: 1.0e-5
+logging_steps: 10
+
+# runtime
+cuda_index: 0
+seed: 1234
+debug: false
+time: ""
+model_type: GraphTracer_5
+result_root: ./result
+
+# evaluation: score only the last sentence of each doc_id (official CSD
+# setting). Full per-utterance predictions are still written to CSV.
+metric_on_last_sentence: true

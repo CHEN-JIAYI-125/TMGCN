@@ -1,0 +1,69 @@
+# ------------------------------------------------------------------
+# Full 蒸馏实验。请先把 models/__init__.py、datasets/__init__.py 换成 rd。
+# python main_graph.py config/config_model5_rd_full.yaml
+# 训练前先生成 Teacher：
+#   python scripts/generate_reply_teacher.py --data_path <train.json> --output_dir data/reply_teacher --provider openai --model gpt-4o-mini
+#   （dev / test 同样跑一遍，写到同一目录）
+# ------------------------------------------------------------------
+
+train_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/train_data.json
+dev_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/dev_data.json
+test_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/test_data.json
+embedding_npy: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/embeddings.npy
+target_knowledge_npy: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/target_knowledge.npy
+
+hidden_size: 768
+num_classes: 3
+dropout: 0.1
+input_dropout: 0.0
+num_layers: 2
+hypergraph_attention: true
+rgcn_num_bases: 0
+use_grounding: true
+use_speaker: 1
+use_dialogue: 1
+use_temporal: 1
+use_reply: 1
+
+cl_lambda: 1.0
+cl_mode: augment
+cl_pos_weight_same_target: 1.0
+cl_pos_weight_diff_target: 0.5
+cl_temperature: 0.2
+cl_feat_mask_rate: 0.2
+cl_noise_scale: 0.1
+cl_proj_dim: 128
+
+bidirectional_temporal: false
+max_nodes_per_target: 0
+
+reply_distillation: 1
+use_reply_distillation: 1
+teacher_path: data/reply_teacher/
+reply_temperature: 3
+reply_kd_lambda: 0.5
+reply_threshold: 0.05
+use_reply_kd: 1
+use_soft_reply_graph: 1
+reply_graph_source: student
+reply_ablation: "E"
+
+epoch_size: 20
+batchsize: 16
+patience: 8
+max_grad_norm: 1.0
+warmup_proportion: 0.2
+warmup_steps: 0
+gradient_accumulation_steps: 1
+adam_epsilon: 1.0e-8
+lr: 1.0e-4
+weight_decay: 1.0e-5
+logging_steps: 10
+
+cuda_index: 0
+seed: 1234
+debug: false
+time: ""
+model_type: GraphTracer_5
+result_root: ./result
+metric_on_last_sentence: true
