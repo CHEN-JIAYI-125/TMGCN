@@ -21,6 +21,7 @@ Grounding、Contrastive Learning。Reply Distillation 只替换回复通道：
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, Dict, Optional
 
 import torch
@@ -38,6 +39,55 @@ from modules.reply_distillation import (
     build_soft_reply_graph,
     merge_teacher_fallback_edges,
 )
+
+
+def _rel0_linear(conv: Any, x: torch.Tensor) -> torch.Tensor:
+    """取出 RGCNConv 第 0 个关系的线性变换，兼容 PyG 2.3–2.6。"""
+    weight = getattr(conv, "weight", None)
+    if weight is not None:
+        w = weight[0] if weight.dim() == 3 else weight
+        return x.matmul(w)
+    for name in ("lin", "comp"):
+        lin = getattr(conv, name, None)
+        if lin is not None and callable(lin):
+            return lin(x)
+    raise RuntimeError("当前 RGCNConv 没有可用的关系权重，无法做加权聚合")
+
+
+def _root_linear(conv: Any, x: torch.Tensor) -> torch.Tensor:
+    root = getattr(conv, "root", None)
+    if root is not None:
+        if root.dim() == 2:
+            return x.matmul(root)
+        return x + root
+    lin_root = getattr(conv, "lin_root", None)
+    if lin_root is not None:
+        return lin_root(x)
+    return torch.zeros_like(x)
+
+
+def _weighted_rgcn_mean(
+    conv: Any,
+    h: torch.Tensor,
+    edge_index: torch.Tensor,
+    edge_weight: torch.Tensor,
+) -> torch.Tensor:
+    """旧版 RGCNConv 不接受 edge_weight 时：message = w_e * (x_j @ W)，再按入度取均值。
+
+    与 PyG 2.6 在 ``aggr='mean'`` 且传入 ``edge_weight`` 时的行为一致。
+    """
+    src, dst = edge_index[0], edge_index[1]
+    msg = _rel0_linear(conv, h[src]) * edge_weight.unsqueeze(-1)
+    out = torch.zeros(h.size(0), msg.size(-1), device=h.device, dtype=h.dtype)
+    out.index_add_(0, dst, msg)
+    deg = torch.zeros(h.size(0), device=h.device, dtype=h.dtype)
+    deg.index_add_(0, dst, torch.ones_like(edge_weight))
+    out = out / deg.clamp_min(1.0).unsqueeze(-1)
+    out = out + _root_linear(conv, h)
+    bias = getattr(conv, "bias", None)
+    if bias is not None:
+        out = out + bias
+    return out
 
 
 class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
@@ -98,13 +148,16 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
         conv = self.reply_convs[i]
         if reply_edge_weight is None:
             return conv(h, reply_candidate_edge_index, edge_type)
-        weight = reply_edge_weight.to(device=h.device, dtype=h.dtype)
+        weight = reply_edge_weight.to(device=h.device, dtype=h.dtype).reshape(-1)
         if weight.numel() != reply_candidate_edge_index.size(1):
             raise RuntimeError(
                 "reply edge_weight 长度 (%d) 与边数 (%d) 不一致"
                 % (int(weight.numel()), int(reply_candidate_edge_index.size(1)))
             )
-        return conv(h, reply_candidate_edge_index, edge_type, edge_weight=weight)
+        # 新版 PyG 的 RGCNConv 支持 edge_weight；服务器上的旧版没有这个参数。
+        if "edge_weight" in inspect.signature(conv.forward).parameters:
+            return conv(h, reply_candidate_edge_index, edge_type, edge_weight=weight)
+        return _weighted_rgcn_mean(conv, h, reply_candidate_edge_index, weight)
 
     def _encode(
         self,
