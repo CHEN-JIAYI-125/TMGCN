@@ -54,6 +54,11 @@ from sklearn.metrics import accuracy_score, f1_score
 from torch.utils.data import DataLoader
 from yaml import safe_load
 
+try:
+    from tqdm import tqdm
+except Exception:  # pragma: no cover
+    tqdm = None
+
 from datasets import TargetGraphDataset, target_graph_collate_fn
 from models import HeterogeneousStanceTracerV5
 
@@ -76,6 +81,35 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+# 终端只保留进度条和 Epoch 结果行；详细日志写到 result/*/log
+for _h in logging.getLogger().handlers:
+    if isinstance(_h, logging.StreamHandler) and not isinstance(_h, logging.FileHandler):
+        _h.setLevel(logging.WARNING)
+
+
+def _pct(x: float) -> str:
+    return f"{float(x) * 100.0:.2f}"
+
+
+def format_split_line(title: str, loss: float, metrics: Dict[str, Any]) -> str:
+    """和 ZS-CSD 终端一致：Epoch N Dev | Loss | Macro F1 | Favor | Against | Neutral。"""
+    return (
+        f"{title} | Loss: {float(loss):.2f} | Macro F1: {_pct(metrics['mixed_f1_macro'])} | "
+        f"Favor: {_pct(metrics['mixed_f1_favor'])} | Against: {_pct(metrics['mixed_f1_against'])} | "
+        f"Neutral: {_pct(metrics['mixed_f1_neutral'])}"
+    )
+
+
+def print_split_line(title: str, loss: float, metrics: Dict[str, Any]) -> None:
+    line = format_split_line(title, loss, metrics)
+    print(line, flush=True)
+    logger.info(line)
+
+
+def _iter_with_progress(iterable, total=None, desc=""):
+    if tqdm is None:
+        return iterable
+    return tqdm(iterable, total=total, desc=desc, leave=True, dynamic_ncols=True)
 
 
 @dataclass
@@ -436,12 +470,18 @@ def predict_and_evaluate(
     model.eval()
     node_rows: List[Dict[str, Any]] = []
     doc_rows: List[Dict[str, Any]] = []
+    eval_loss_sum = 0.0
+    eval_loss_n = 0
 
     with torch.no_grad():
-        for idx in range(len(dataset)):
+        for idx in _iter_with_progress(range(len(dataset)), total=len(dataset), desc=""):
             item = dataset[idx]
             batch = _to_device(get_collate_fn(cfg)([item]), device)
             output = model(**batch)
+            loss = output.get("loss")
+            if loss is not None and torch.is_tensor(loss) and torch.isfinite(loss):
+                eval_loss_sum += float(loss.detach().cpu())
+                eval_loss_n += 1
             logits = output["logits"]
             y = batch["y"].cpu().tolist()
             preds = logits.argmax(dim=-1).cpu().tolist()
@@ -500,7 +540,7 @@ def predict_and_evaluate(
 
     if cfg.metric_on_last_sentence:
         metric_rows = doc_rows
-        logger.info(
+        logger.debug(
             "%s scoring %d doc_id(s) via their final-sentence mapping",
             prefix.upper(),
             len(metric_rows),
@@ -513,32 +553,9 @@ def predict_and_evaluate(
     target_types_list = [str(r.get("target_type", "")) for r in metric_rows if r["true"] >= 0]
     metrics = utterance_metrics(y_true_list, y_pred_list, cfg.num_classes)
     metrics["prefix"] = prefix
+    metrics["eval_loss"] = eval_loss_sum / max(1, eval_loss_n)
     metrics.update(scoped_metrics(y_true_list, y_pred_list, target_types_list, cfg.num_classes))
-
-    logger.info(
-        "%s metrics mixed | f1_macro=%.6f | f1_avg=%.6f | accuracy=%.6f | majority_acc=%.6f | f1_per_class=%s | scored=%d",
-        prefix.upper(),
-        metrics["f1_macro"],
-        metrics["f1_avg"],
-        metrics["accuracy"],
-        metrics["majority_acc"],
-        np.array2string(np.asarray(metrics["f1_per_class"]), precision=4),
-        metrics["num_nodes"],
-    )
-    for scope in ("c", "n"):
-        logger.info(
-            "%s metrics %s | f1_macro=%.6f | f1_avg=%.6f | accuracy=%.6f | "
-            "favor=%.4f | against=%.4f | neutral=%.4f | scored=%d",
-            prefix.upper(),
-            "claim(c)" if scope == "c" else "noun-phrase(n)",
-            metrics[f"{scope}_f1_macro"],
-            metrics[f"{scope}_f1_avg"],
-            metrics[f"{scope}_accuracy"],
-            metrics[f"{scope}_f1_favor"],
-            metrics[f"{scope}_f1_against"],
-            metrics[f"{scope}_f1_neutral"],
-            metrics[f"{scope}_num"],
-        )
+    _log_scoped_metrics(prefix, metrics)
     return metrics
 
 
@@ -607,6 +624,7 @@ def main():
 
     global_step = 0
     best_f1 = -1.0
+    best_epoch = 0
     best_state = None
     bad_epochs = 0
     tr_loss = 0.0
@@ -616,7 +634,8 @@ def main():
         model.train()
         epoch_loss = 0.0
         optimizer.zero_grad()
-        for step, batch in enumerate(train_loader, start=1):
+        train_iter = _iter_with_progress(train_loader, total=len(train_loader), desc="")
+        for step, batch in enumerate(train_iter, start=1):
             batch = _to_device(batch, device)
             output = model(**batch)
             loss = output["loss"]
@@ -657,30 +676,23 @@ def main():
             model, dev_dataset, cfg, device, prefix="dev",
             pred_path=str(pred_dir / f"epoch_{epoch}_dev.csv"),
         )
-        test_metrics = predict_and_evaluate(
-            model, test_dataset, cfg, device, prefix="test",
-            pred_path=str(pred_dir / f"epoch_{epoch}_test.csv"),
-        )
-        dev_f1 = dev_metrics["f1_macro"]
+        print_split_line(f"Epoch {epoch} Dev", dev_metrics["eval_loss"], dev_metrics)
+
+        dev_f1 = dev_metrics["mixed_f1_macro"]
         if dev_f1 > best_f1:
             best_f1 = dev_f1
+            best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             bad_epochs = 0
+            test_metrics = predict_and_evaluate(
+                model, test_dataset, cfg, device, prefix="test",
+                pred_path=str(pred_dir / f"epoch_{epoch}_test.csv"),
+            )
+            print_split_line(f"Epoch {epoch} Test (best dev)", test_metrics["eval_loss"], test_metrics)
             logger.info("new best dev f1_macro=%.6f (saved)", dev_f1)
         else:
             bad_epochs += 1
             logger.info("dev f1_macro=%.6f (no improvement, bad_epochs=%d)", dev_f1, bad_epochs)
-        logger.info(
-            "epoch %d snapshot | dev mixed=%.6f claim(c)=%.6f noun(n)=%.6f | "
-            "test mixed=%.6f claim(c)=%.6f noun(n)=%.6f",
-            epoch,
-            dev_metrics["mixed_f1_macro"],
-            dev_metrics["c_f1_macro"],
-            dev_metrics["n_f1_macro"],
-            test_metrics["mixed_f1_macro"],
-            test_metrics["c_f1_macro"],
-            test_metrics["n_f1_macro"],
-        )
 
         if cfg.patience > 0 and bad_epochs >= cfg.patience:
             logger.info("early stop after %d epochs without improvement", bad_epochs)
@@ -704,9 +716,15 @@ def main():
         model, test_dataset, cfg, device, prefix="test",
         pred_path=str(pred_dir / "final_test.csv"),
     )
+    print_split_line(
+        f"Final Test (best epoch {best_epoch or 1})",
+        test_metrics["eval_loss"],
+        test_metrics,
+    )
 
     summary = {
         "best_dev_f1_macro": best_f1,
+        "best_epoch": best_epoch,
         "dev": dev_metrics,
         "test": test_metrics,
         "config": asdict(cfg),
