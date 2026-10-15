@@ -1,0 +1,20 @@
+[
+  {
+    "id": 21,
+    "target": "Sora",
+    "target_type": "c",
+    "label": 2,
+    "speakers": [5],
+    "sentences": ["有人发了 Sora 的链接。"],
+    "all_labels": [2]
+  },
+  {
+    "id": 22,
+    "target": "电动车",
+    "target_type": "n",
+    "label": 0,
+    "speakers": [6, 7],
+    "sentences": ["这款电动车省油钱。", "维护也便宜。"],
+    "all_labels": [0, 0]
+  }
+]

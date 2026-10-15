@@ -6,11 +6,11 @@
 #   （dev / test 同样跑一遍，写到同一目录）
 # ------------------------------------------------------------------
 
-train_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/train_data.json
-dev_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/dev_data.json
-test_path: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/test_data.json
-embedding_npy: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/embeddings.npy
-target_knowledge_npy: /home/xiongjie/data/csd/data/raw_with_all_labels_v3/target_knowledge.npy
+train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
+dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
+test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
+embedding_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
+target_knowledge_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/target_knowledge.npy
 
 hidden_size: 768
 num_classes: 3

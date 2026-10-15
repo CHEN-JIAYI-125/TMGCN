@@ -1,0 +1,1 @@
+# Independent LLM embedding baseline; not imported by TMGCN core.

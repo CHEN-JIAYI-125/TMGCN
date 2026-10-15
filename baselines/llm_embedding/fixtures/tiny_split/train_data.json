@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1,
+    "target": "Sora",
+    "target_type": "c",
+    "label": 0,
+    "speakers": [0, 1],
+    "sentences": ["Sora 生成视频看起来很真实。", "对，这会改变影视行业。"],
+    "all_labels": [0, 0]
+  },
+  {
+    "id": 2,
+    "target": "Sora",
+    "target_type": "c",
+    "label": 1,
+    "speakers": [0, 1, 0],
+    "sentences": ["有人吹捧 Sora。", "我觉得它只会制造假新闻。", "同意，风险很大。"],
+    "all_labels": [-100, 1, 1]
+  },
+  {
+    "id": 3,
+    "target": "电动车",
+    "target_type": "n",
+    "label": 2,
+    "speakers": [2],
+    "sentences": ["今天天气不错。"],
+    "all_labels": [2]
+  }
+]
