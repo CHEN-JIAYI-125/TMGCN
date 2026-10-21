@@ -125,6 +125,7 @@ class GraphConfig:
 
     # model
     hidden_size: int = field(default=768)
+    input_size: int = field(default=0)  # 0: infer frozen feature width
     num_classes: int = field(default=3)
     dropout: float = field(default=0.1)
     input_dropout: float = field(default=0.0)
@@ -603,6 +604,13 @@ def main():
         len(test_dataset),
     )
 
+    feature_dims = {ds.embedding_store.dim for ds in (train_dataset, dev_dataset, test_dataset)}
+    if len(feature_dims) != 1:
+        raise ValueError(f"Split embedding dimensions differ: {feature_dims}")
+    feature_dim = feature_dims.pop()
+    if cfg.input_size not in (0, feature_dim):
+        raise ValueError(f"input_size={cfg.input_size} but embeddings have width {feature_dim}")
+    cfg.input_size = feature_dim
     model = build_model(cfg)
     model.to(device)
     logger.info(

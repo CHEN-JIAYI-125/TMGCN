@@ -311,7 +311,11 @@ class HeterogeneousStanceTracerV5(nn.Module):
         self.use_temporal = bool(getattr(config, "use_temporal", True))
         self.use_reply = bool(getattr(config, "use_reply", True))
 
-        self.input_proj = nn.Identity()  # frozen embeddings enter as-is
+        self.input_size = int(getattr(config, "input_size", 0) or self.hidden_size)
+        self.input_proj = (
+            nn.Identity() if self.input_size == self.hidden_size else
+            nn.Sequential(nn.Linear(self.input_size, self.hidden_size), nn.LayerNorm(self.hidden_size))
+        )
 
         self.speaker_convs = nn.ModuleList(
             [
@@ -565,6 +569,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
                 )
             # row 0 of the prior is the raw target text t_i (un-grounded
             # target representation); rows 1..3 are the stance views K.
+            target_knowledge = self.input_proj(target_knowledge)
             t_repr = target_knowledge[:, 0, :]  # [G, D]
             k_views = target_knowledge[:, 1:, :]  # [G, V, D]
             h_tar, alpha = self.grounding(h, k_views, graph_ptr)

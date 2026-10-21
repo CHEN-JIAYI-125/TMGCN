@@ -331,6 +331,7 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
                     "datasets with the same config "
                     "(run build_target_embeddings.py --stage targets first)"
                 )
+            target_knowledge = self.input_proj(target_knowledge)
             t_repr = target_knowledge[:, 0, :]
             k_views = target_knowledge[:, 1:, :]
             h_tar, alpha = self.grounding(h, k_views, graph_ptr)
