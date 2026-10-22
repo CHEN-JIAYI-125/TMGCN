@@ -1,24 +1,11 @@
-# ------------------------------------------------------------------
-# 原版 TMGCN + 离线 Qwen 节点 embedding + Stance Teacher KD。
-# 模型/数据集保持 model_graph_5_2 / dataset_graph_4，不走 Reply 蒸馏。
-#
-# 1) 先生成 Teacher（Qwen3-8B-Instruct 一类，本地或 vLLM）：
-#    python scripts/generate_stance_teacher.py \
-#      --data_path /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json \
-#      --output_dir data/stance_teacher \
-#      --provider local --model /path/to/Qwen3-8B \
-#      --method token --scope last_sentence --device cuda:0
-#    python scripts/eval_stance_teacher.py --teacher_path data/stance_teacher
-#
-# 2) 再训练：
-#    python main_graph.py config/config_model5_stance_kd.yaml
-# ------------------------------------------------------------------
+# 已改回回复结构蒸馏，不再使用立场/语义蒸馏。
+# 请改用：
+#   python main_graph.py config/config_model5_rd_full.yaml
+# 本文件与 rd_full 保持同一套开关，避免误跑语义 KD。
 
 train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
 dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
 test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
-# 节点特征：离线 Qwen embedding。原来的 RoBERTa：
-# /home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
 embedding_npy: /home/chenjiayi/data/csd/qwen_graph/embeddings.npy
 target_knowledge_npy: /home/chenjiayi/data/csd/qwen_graph/target_knowledge.npy
 
@@ -48,15 +35,18 @@ cl_proj_dim: 128
 bidirectional_temporal: false
 max_nodes_per_target: 0
 
-# Reply 结构蒸馏保持关闭
-reply_distillation: 0
-use_reply_distillation: 0
-use_reply_kd: 0
-use_soft_reply_graph: 0
-reply_ablation: ""
+reply_distillation: 1
+use_reply_distillation: 1
+teacher_path: data/reply_teacher/
+reply_temperature: 3
+reply_kd_lambda: 0.5
+reply_threshold: 0.05
+use_reply_kd: 1
+use_soft_reply_graph: 1
+reply_graph_source: student
+reply_ablation: "E"
 
-# Stance Teacher KD: L = L_CE + λ T^2 KL(p_T || p_S)
-use_stance_kd: 1
+use_stance_kd: 0
 stance_teacher_path: data/stance_teacher/
 stance_kd_lambda: 0.5
 stance_kd_temperature: 3.0

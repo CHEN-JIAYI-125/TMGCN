@@ -1,14 +1,23 @@
 # ------------------------------------------------------------------
-# 原版 TMGCN + 离线 Qwen embedding。Reply 蒸馏关闭。
-# Stance Teacher KD 见 config_model5_stance_kd.yaml。
-# python main_graph.py config/config_model5_rd_full.yaml
+# 原版四通道 TMGCN + 离线 Qwen 节点 embedding + 回复结构蒸馏（ablation E）。
+# 不使用立场/语义蒸馏。
+#
+# 1) 用 Qwen3-8B-Instruct 生成 Reply Teacher：
+#    python scripts/generate_reply_teacher.py \
+#      --data_path /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json \
+#      --output_dir data/reply_teacher \
+#      --provider local --model /path/to/Qwen3-8B --device cuda:0
+#    （dev / test 同样跑一遍，写到同一目录）
+#
+# 2) 训练：
+#    python main_graph.py config/config_model5_rd_full.yaml
 # ------------------------------------------------------------------
 
 train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
 dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
 test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
-# 节点特征改用离线 Qwen embedding（同一套 global_id）。先跑 offline/build_qwen_graph.py。
-# 原来的 RoBERTa：/home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
+# 节点特征：离线 Qwen embedding。原来的 RoBERTa：
+# /home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
 embedding_npy: /home/chenjiayi/data/csd/qwen_graph/embeddings.npy
 target_knowledge_npy: /home/chenjiayi/data/csd/qwen_graph/target_knowledge.npy
 
@@ -38,17 +47,19 @@ cl_proj_dim: 128
 bidirectional_temporal: false
 max_nodes_per_target: 0
 
-reply_distillation: 0
-use_reply_distillation: 0
+# 回复结构蒸馏：Student 软回复图 + KL(P_T || P_S)
+reply_distillation: 1
+use_reply_distillation: 1
 teacher_path: data/reply_teacher/
 reply_temperature: 3
 reply_kd_lambda: 0.5
 reply_threshold: 0.05
-use_reply_kd: 0
-use_soft_reply_graph: 0
+use_reply_kd: 1
+use_soft_reply_graph: 1
 reply_graph_source: student
-reply_ablation: ""
+reply_ablation: "E"
 
+# 立场/语义蒸馏关闭
 use_stance_kd: 0
 stance_teacher_path: data/stance_teacher/
 stance_kd_lambda: 0.5

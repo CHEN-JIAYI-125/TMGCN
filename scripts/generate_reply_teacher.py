@@ -32,14 +32,21 @@ python scripts/generate_reply_teacher.py \\
     --output_dir data/reply_teacher \\
     --provider mock
 
-# 2) OpenAI 兼容接口（GPT / vLLM / DashScope compatible-mode）
-export OPENAI_API_KEY=sk-...
+# 2) 本地 Qwen3-8B-Instruct（生成回复结构，不预测立场）
 python scripts/generate_reply_teacher.py \\
-    --data_path /path/to/raw_with_all_labels_v3/train_data.json \\
+    --data_path /path/to/train_data.json \\
+    --output_dir data/reply_teacher \\
+    --provider local \\
+    --model /path/to/Qwen3-8B \\
+    --device cuda:0
+
+# 3) OpenAI 兼容接口（vLLM / DashScope）
+python scripts/generate_reply_teacher.py \\
+    --data_path /path/to/train_data.json \\
     --output_dir data/reply_teacher \\
     --provider openai \\
-    --model gpt-4o-mini \\
-    --api_base https://api.openai.com/v1
+    --model Qwen3-8B \\
+    --api_base http://127.0.0.1:8000/v1
 
 对 train / dev / test 各跑一次，写到同一个 output_dir 即可
 （conversation_id 不跨 split 冲突时文件名即 id）。
@@ -253,6 +260,65 @@ def _openai_chat(
         raise RuntimeError(f"unexpected LLM response: {body}") from exc
 
 
+def _apply_chat_template(tokenizer, messages: List[Dict[str, str]]) -> str:
+    kwargs = {"tokenize": False, "add_generation_prompt": True}
+    try:
+        return tokenizer.apply_chat_template(messages, enable_thinking=False, **kwargs)
+    except TypeError:
+        return tokenizer.apply_chat_template(messages, **kwargs)
+
+
+class LocalQwenReplyTeacher:
+    """本地 Qwen3-Instruct：只生成回复结构 JSON，不预测立场。"""
+
+    def __init__(
+        self,
+        model_path: str,
+        device: str = "cuda:0",
+        dtype: str = "bf16",
+        allow_download: bool = False,
+        max_new_tokens: int = 256,
+        temperature: float = 0.4,
+    ):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        self.torch = torch
+        local_only = not allow_download
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_path, local_files_only=local_only, trust_remote_code=True
+        )
+        torch_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[dtype]
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            torch_dtype=torch_dtype,
+            device_map="auto" if device == "auto" else None,
+            local_files_only=local_only,
+            trust_remote_code=True,
+        )
+        if device != "auto":
+            self.model.to(device)
+        self.model.eval()
+        self.device = next(self.model.parameters()).device
+        self.max_new_tokens = int(max_new_tokens)
+        self.temperature = float(temperature)
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+    def generate(self, messages: List[Dict[str, str]]) -> str:
+        prefix = _apply_chat_template(self.tokenizer, messages)
+        inputs = self.tokenizer(prefix, return_tensors="pt").to(self.device)
+        with self.torch.no_grad():
+            out = self.model.generate(
+                **inputs,
+                max_new_tokens=self.max_new_tokens,
+                do_sample=self.temperature > 0,
+                temperature=max(self.temperature, 1e-5),
+                pad_token_id=self.tokenizer.pad_token_id,
+            )
+        return self.tokenizer.decode(out[0][inputs["input_ids"].size(1) :], skip_special_tokens=True)
+
+
 class LLMReplyTeacher:
     """离线 Teacher：对单个 (conversation, t) 查询回复分布。"""
 
@@ -265,6 +331,9 @@ class LLMReplyTeacher:
         temperature: float = 0.4,
         max_retries: int = 3,
         sleep_s: float = 0.5,
+        device: str = "cuda:0",
+        dtype: str = "bf16",
+        allow_download: bool = False,
     ):
         self.provider = str(provider).lower()
         self.model = model
@@ -273,7 +342,18 @@ class LLMReplyTeacher:
         self.temperature = float(temperature)
         self.max_retries = int(max_retries)
         self.sleep_s = float(sleep_s)
-        if self.provider in ("openai", "qwen", "vllm") and not self.model:
+        self.local: Optional[LocalQwenReplyTeacher] = None
+        if self.provider in ("local", "hf", "huggingface"):
+            if not self.model:
+                raise ValueError("provider=local 时必须指定 --model（Qwen3-8B 本地目录或 HF id）")
+            self.local = LocalQwenReplyTeacher(
+                model_path=self.model,
+                device=device,
+                dtype=dtype,
+                allow_download=allow_download,
+                temperature=self.temperature,
+            )
+        elif self.provider in ("openai", "qwen", "vllm") and not self.model:
             raise ValueError("provider=%s 时必须指定 --model" % self.provider)
 
     def infer(self, target: str, utterances: Sequence[Dict[str, Any]], t: int) -> Dict[str, float]:
@@ -290,13 +370,16 @@ class LLMReplyTeacher:
         last_err: Optional[Exception] = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                text = _openai_chat(
-                    self.api_base,
-                    self.api_key,
-                    self.model,
-                    messages,
-                    temperature=self.temperature,
-                )
+                if self.local is not None:
+                    text = self.local.generate(messages)
+                else:
+                    text = _openai_chat(
+                        self.api_base,
+                        self.api_key,
+                        self.model,
+                        messages,
+                        temperature=self.temperature,
+                    )
                 obj = _extract_json_obj(text)
                 return normalize_reply_distribution(obj, t)
             except Exception as exc:
@@ -348,12 +431,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--provider",
         default="mock",
-        choices=["mock", "heuristic", "openai", "qwen", "vllm"],
-        help="mock/heuristic=近因先验；其余走 OpenAI 兼容 Chat API",
+        choices=["mock", "heuristic", "local", "hf", "openai", "qwen", "vllm"],
+        help="mock=近因先验；local=本地 Qwen Instruct；其余走 OpenAI 兼容 Chat API",
     )
-    parser.add_argument("--model", default="", help="LLM 模型名，如 gpt-4o-mini / qwen-plus")
+    parser.add_argument("--model", default="", help="Qwen3-8B 本地目录 / HF id / 服务名")
     parser.add_argument("--api_base", default="", help="默认 OPENAI_BASE_URL 或 https://api.openai.com/v1")
     parser.add_argument("--api_key", default="", help="默认 OPENAI_API_KEY / DASHSCOPE_API_KEY")
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--dtype", default="bf16", choices=["bf16", "fp16", "fp32"])
+    parser.add_argument("--allow-download", action="store_true")
     parser.add_argument("--temperature", type=float, default=0.4, help="LLM 采样温度（>0 以得到 soft 分数）")
     parser.add_argument("--max_conversations", type=int, default=0, help=">0 时只处理前 K 段，调试用")
     parser.add_argument("--sleep", type=float, default=0.2, help="两次 LLM 调用之间的间隔秒")
@@ -375,6 +461,9 @@ def main() -> None:
         api_key=args.api_key,
         temperature=args.temperature,
         sleep_s=args.sleep,
+        device=args.device,
+        dtype=args.dtype,
+        allow_download=args.allow_download,
     )
     records = _load_json_records(args.data_path)
     if args.max_conversations > 0:
