@@ -81,10 +81,7 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
-# 终端只保留进度条和 Epoch 结果行；详细日志写到 result/*/log
-for _h in logging.getLogger().handlers:
-    if isinstance(_h, logging.StreamHandler) and not isinstance(_h, logging.FileHandler):
-        _h.setLevel(logging.WARNING)
+# 终端和 nohup 日志都保留 INFO，方便 tail -f 看每一轮数字
 
 
 def _pct(x: float) -> str:
@@ -107,7 +104,8 @@ def print_split_line(title: str, loss: float, metrics: Dict[str, Any]) -> None:
 
 
 def _iter_with_progress(iterable, total=None, desc=""):
-    if tqdm is None:
+    # nohup / 重定向时不用 tqdm，避免 \r 进度条把 tail 刷乱
+    if tqdm is None or not sys.stdout.isatty():
         return iterable
     return tqdm(iterable, total=total, desc=desc, leave=True, dynamic_ncols=True)
 
@@ -163,7 +161,7 @@ class GraphConfig:
     # training
     epoch_size: int = field(default=20)
     batchsize: int = field(default=1)  # target graphs per step
-    patience: int = field(default=8)
+    patience: int = field(default=0)  # 0 = 不 early stop，跑满 epoch_size
     max_grad_norm: float = field(default=1.0)
     warmup_proportion: float = field(default=0.1)
     warmup_steps: int = field(default=0)
@@ -611,6 +609,10 @@ def main():
     if cfg.input_size not in (0, feature_dim):
         raise ValueError(f"input_size={cfg.input_size} but embeddings have width {feature_dim}")
     cfg.input_size = feature_dim
+    print(
+        f"embeddings: {cfg.embedding_npy} | dim={feature_dim}",
+        flush=True,
+    )
     model = build_model(cfg)
     model.to(device)
     logger.info(
@@ -678,6 +680,7 @@ def main():
                     tr_steps = 0
 
         avg_epoch_loss = epoch_loss / max(1, len(train_loader))
+        print(f"Epoch {epoch} Train | Loss: {avg_epoch_loss:.2f}", flush=True)
         logger.info("epoch %d finished | avg_loss=%.6f", epoch, avg_epoch_loss)
 
         dev_metrics = predict_and_evaluate(
@@ -686,25 +689,24 @@ def main():
         )
         print_split_line(f"Epoch {epoch} Dev", dev_metrics["eval_loss"], dev_metrics)
 
+        test_metrics = predict_and_evaluate(
+            model, test_dataset, cfg, device, prefix="test",
+            pred_path=str(pred_dir / f"epoch_{epoch}_test.csv"),
+        )
+        print_split_line(f"Epoch {epoch} Test", test_metrics["eval_loss"], test_metrics)
+
         dev_f1 = dev_metrics["mixed_f1_macro"]
         if dev_f1 > best_f1:
             best_f1 = dev_f1
             best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             bad_epochs = 0
-            test_metrics = predict_and_evaluate(
-                model, test_dataset, cfg, device, prefix="test",
-                pred_path=str(pred_dir / f"epoch_{epoch}_test.csv"),
-            )
-            print_split_line(f"Epoch {epoch} Test (best dev)", test_metrics["eval_loss"], test_metrics)
-            logger.info("new best dev f1_macro=%.6f (saved)", dev_f1)
+            logger.info("new best dev f1_macro=%.6f (saved, epoch=%d)", dev_f1, epoch)
         else:
             bad_epochs += 1
             logger.info("dev f1_macro=%.6f (no improvement, bad_epochs=%d)", dev_f1, bad_epochs)
 
-        if cfg.patience > 0 and bad_epochs >= cfg.patience:
-            logger.info("early stop after %d epochs without improvement", bad_epochs)
-            break
+        # patience<=0：按 epoch_size 跑满，不 early stop
 
     if best_state is None:
         best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}

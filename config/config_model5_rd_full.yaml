@@ -9,10 +9,13 @@
 train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
 dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
 test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
-embedding_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
-target_knowledge_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/target_knowledge.npy
+# 节点特征改用离线 Qwen embedding（同一套 global_id）。先跑 offline/build_qwen_graph.py。
+# 原来的 RoBERTa：/home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
+embedding_npy: /home/chenjiayi/data/csd/qwen_graph/embeddings.npy
+target_knowledge_npy: /home/chenjiayi/data/csd/qwen_graph/target_knowledge.npy
 
 hidden_size: 768
+input_size: 0
 num_classes: 3
 dropout: 0.1
 input_dropout: 0.0
@@ -50,7 +53,7 @@ reply_ablation: "E"
 
 epoch_size: 20
 batchsize: 16
-patience: 8
+patience: 0
 max_grad_norm: 1.0
 warmup_proportion: 0.2
 warmup_steps: 0

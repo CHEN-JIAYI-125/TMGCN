@@ -58,6 +58,8 @@ def main():
     p.add_argument('--max-length', type=int, default=512)
     p.add_argument('--dtype', choices=['bf16', 'fp16', 'fp32'], default='bf16')
     p.add_argument('--target-template', default='datasets/target_knowledge_template.json')
+    p.add_argument('--allow-download', action='store_true',
+                   help='允许从 HuggingFace 拉权重；默认只读本地目录')
     a = p.parse_args()
     if a.batch_size < 1 or a.max_length < 8:
         p.error('batch-size must be positive and max-length >= 8')
@@ -74,13 +76,16 @@ def main():
         raise ValueError(f'Target template missing {len(missing)} data targets')
     out.mkdir(parents=True, exist_ok=True)
     print(f'Unique nodes={len(rows)}; target views={len(views)}', flush=True)
-    tokenizer = AutoTokenizer.from_pretrained(a.model, local_files_only=True)
+    local_only = not a.allow_download
+    tokenizer = AutoTokenizer.from_pretrained(a.model, local_files_only=local_only, trust_remote_code=True)
     tokenizer.padding_side = 'left'
     tokenizer.truncation_side = 'right'
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     dtype = {'bf16': torch.bfloat16, 'fp16': torch.float16, 'fp32': torch.float32}[a.dtype]
-    model = AutoModel.from_pretrained(a.model, torch_dtype=dtype, local_files_only=True).to(a.device).eval()
+    model = AutoModel.from_pretrained(
+        a.model, torch_dtype=dtype, local_files_only=local_only, trust_remote_code=True,
+    ).to(a.device).eval()
     model.requires_grad_(False)
     dim = model.config.hidden_size
     instruction = 'Represent the meaning and stance of this text for stance classification.'
