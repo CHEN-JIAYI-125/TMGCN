@@ -194,6 +194,14 @@ class GraphConfig:
     reply_graph_source: str = field(default="student")
     reply_ablation: str = field(default="")
 
+    # Stance KD: frozen Qwen Instruct Teacher probs -> TMGCN logits.
+    # L = L_CE + stance_kd_lambda * T^2 * KL(p_T || p_S). Off by default.
+    use_stance_kd: int = field(default=0)
+    stance_teacher_path: str = field(default="data/stance_teacher/")
+    stance_kd_lambda: float = field(default=0.5)
+    stance_kd_temperature: float = field(default=3.0)
+    stance_kd_scope: str = field(default="last_sentence")
+
     def to_json_string(self, *args, **kwargs):
         return json.dumps(asdict(self), indent=2, sort_keys=True, ensure_ascii=False)
 
@@ -238,6 +246,10 @@ def load_config(config_path: str) -> GraphConfig:
 
 
 def get_collate_fn(cfg: GraphConfig):
+    if cfg.use_stance_kd:
+        from datasets.dataset_graph_4_stance_kd import stance_kd_collate_fn
+
+        return stance_kd_collate_fn
     return target_graph_collate_fn
 
 
@@ -282,6 +294,15 @@ def build_dataset(cfg: GraphConfig, split_path: str) -> Any:
             ds.reply_teacher_dist = ds.reply_teacher_dist[:keep]
             ds.reply_teacher_mask = ds.reply_teacher_mask[:keep]
         logger.info("[debug] trimmed dataset to %d target graphs", keep)
+    if cfg.use_stance_kd:
+        from datasets.dataset_graph_4_stance_kd import wrap_with_stance_teacher
+
+        ds = wrap_with_stance_teacher(
+            ds,
+            teacher_path=cfg.stance_teacher_path,
+            scope=cfg.stance_kd_scope,
+            num_classes=cfg.num_classes,
+        )
     return ds
 
 
@@ -640,21 +661,44 @@ def main():
     tr_loss = 0.0
     tr_steps = 0
 
+    if cfg.use_stance_kd:
+        from modules.stance_distillation import stance_kd_loss
+
+        logger.info(
+            "stance kd on | lambda=%.4f T=%.2f scope=%s path=%s",
+            cfg.stance_kd_lambda,
+            cfg.stance_kd_temperature,
+            cfg.stance_kd_scope,
+            cfg.stance_teacher_path,
+        )
+
     for epoch in range(1, cfg.epoch_size + 1):
         model.train()
         epoch_loss = 0.0
+        epoch_kd = 0.0
         optimizer.zero_grad()
         train_iter = _iter_with_progress(train_loader, total=len(train_loader), desc="")
         for step, batch in enumerate(train_iter, start=1):
             batch = _to_device(batch, device)
             output = model(**batch)
             loss = output["loss"]
+            kd_term = None
+            if cfg.use_stance_kd:
+                kd_term = stance_kd_loss(
+                    output["logits"],
+                    batch.get("stance_teacher_probs"),
+                    batch.get("stance_teacher_mask"),
+                    temperature=cfg.stance_kd_temperature,
+                )
+                loss = loss + cfg.stance_kd_lambda * kd_term
             if not torch.isfinite(loss):
                 logger.warning("[train] non-finite loss=%s at step %d; skipping step", float(loss), global_step)
                 continue
             loss = loss / cfg.gradient_accumulation_steps
             loss.backward()
             epoch_loss += float(loss.detach().cpu())
+            if kd_term is not None:
+                epoch_kd += float(kd_term.detach().cpu())
             tr_loss += float(loss.detach().cpu())
             tr_steps += 1
 
@@ -680,8 +724,21 @@ def main():
                     tr_steps = 0
 
         avg_epoch_loss = epoch_loss / max(1, len(train_loader))
-        print(f"Epoch {epoch} Train | Loss: {avg_epoch_loss:.2f}", flush=True)
-        logger.info("epoch %d finished | avg_loss=%.6f", epoch, avg_epoch_loss)
+        avg_epoch_kd = epoch_kd / max(1, len(train_loader))
+        if cfg.use_stance_kd:
+            print(
+                f"Epoch {epoch} Train | Loss: {avg_epoch_loss:.2f} | KD: {avg_epoch_kd:.4f}",
+                flush=True,
+            )
+            logger.info(
+                "epoch %d finished | avg_loss=%.6f | avg_kd=%.6f",
+                epoch,
+                avg_epoch_loss,
+                avg_epoch_kd,
+            )
+        else:
+            print(f"Epoch {epoch} Train | Loss: {avg_epoch_loss:.2f}", flush=True)
+            logger.info("epoch %d finished | avg_loss=%.6f", epoch, avg_epoch_loss)
 
         dev_metrics = predict_and_evaluate(
             model, dev_dataset, cfg, device, prefix="dev",

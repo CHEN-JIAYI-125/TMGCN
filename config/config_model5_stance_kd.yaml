@@ -1,0 +1,83 @@
+# ------------------------------------------------------------------
+# 原版 TMGCN + 离线 Qwen 节点 embedding + Stance Teacher KD。
+# 模型/数据集保持 model_graph_5_2 / dataset_graph_4，不走 Reply 蒸馏。
+#
+# 1) 先生成 Teacher（Qwen3-8B-Instruct 一类，本地或 vLLM）：
+#    python scripts/generate_stance_teacher.py \
+#      --data_path /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json \
+#      --output_dir data/stance_teacher \
+#      --provider local --model /path/to/Qwen3-8B \
+#      --method token --scope last_sentence --device cuda:0
+#    python scripts/eval_stance_teacher.py --teacher_path data/stance_teacher
+#
+# 2) 再训练：
+#    python main_graph.py config/config_model5_stance_kd.yaml
+# ------------------------------------------------------------------
+
+train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
+dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
+test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
+# 节点特征：离线 Qwen embedding。原来的 RoBERTa：
+# /home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
+embedding_npy: /home/chenjiayi/data/csd/qwen_graph/embeddings.npy
+target_knowledge_npy: /home/chenjiayi/data/csd/qwen_graph/target_knowledge.npy
+
+hidden_size: 768
+input_size: 0
+num_classes: 3
+dropout: 0.1
+input_dropout: 0.0
+num_layers: 2
+hypergraph_attention: true
+rgcn_num_bases: 0
+use_grounding: true
+use_speaker: 1
+use_dialogue: 1
+use_temporal: 1
+use_reply: 1
+
+cl_lambda: 1.0
+cl_mode: augment
+cl_pos_weight_same_target: 1.0
+cl_pos_weight_diff_target: 0.5
+cl_temperature: 0.2
+cl_feat_mask_rate: 0.2
+cl_noise_scale: 0.1
+cl_proj_dim: 128
+
+bidirectional_temporal: false
+max_nodes_per_target: 0
+
+# Reply 结构蒸馏保持关闭
+reply_distillation: 0
+use_reply_distillation: 0
+use_reply_kd: 0
+use_soft_reply_graph: 0
+reply_ablation: ""
+
+# Stance Teacher KD: L = L_CE + λ T^2 KL(p_T || p_S)
+use_stance_kd: 1
+stance_teacher_path: data/stance_teacher/
+stance_kd_lambda: 0.5
+stance_kd_temperature: 3.0
+stance_kd_scope: last_sentence
+
+epoch_size: 20
+batchsize: 16
+patience: 0
+max_grad_norm: 1.0
+warmup_proportion: 0.2
+warmup_steps: 0
+gradient_accumulation_steps: 1
+adam_epsilon: 1.0e-8
+lr: 1.0e-4
+weight_decay: 1.0e-5
+logging_steps: 10
+
+cuda_index: 0
+seed: 1234
+debug: false
+time: ""
+model_type: GraphTracer_5
+result_root: ./result
+metric_on_last_sentence: true

@@ -1,9 +1,7 @@
 # ------------------------------------------------------------------
-# Full 蒸馏实验。请先把 models/__init__.py、datasets/__init__.py 换成 rd。
+# 原版 TMGCN + 离线 Qwen embedding。Reply 蒸馏关闭。
+# Stance Teacher KD 见 config_model5_stance_kd.yaml。
 # python main_graph.py config/config_model5_rd_full.yaml
-# 训练前先生成 Teacher：
-#   python scripts/generate_reply_teacher.py --data_path <train.json> --output_dir data/reply_teacher --provider openai --model gpt-4o-mini
-#   （dev / test 同样跑一遍，写到同一目录）
 # ------------------------------------------------------------------
 
 train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
@@ -40,16 +38,22 @@ cl_proj_dim: 128
 bidirectional_temporal: false
 max_nodes_per_target: 0
 
-reply_distillation: 1
-use_reply_distillation: 1
+reply_distillation: 0
+use_reply_distillation: 0
 teacher_path: data/reply_teacher/
 reply_temperature: 3
 reply_kd_lambda: 0.5
 reply_threshold: 0.05
-use_reply_kd: 1
-use_soft_reply_graph: 1
+use_reply_kd: 0
+use_soft_reply_graph: 0
 reply_graph_source: student
-reply_ablation: "E"
+reply_ablation: ""
+
+use_stance_kd: 0
+stance_teacher_path: data/stance_teacher/
+stance_kd_lambda: 0.5
+stance_kd_temperature: 3.0
+stance_kd_scope: last_sentence
 
 epoch_size: 20
 batchsize: 16
