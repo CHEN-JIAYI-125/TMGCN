@@ -268,6 +268,36 @@ def _apply_chat_template(tokenizer, messages: List[Dict[str, str]]) -> str:
         return tokenizer.apply_chat_template(messages, **kwargs)
 
 
+def _patch_torch_distributed_tensor() -> None:
+    """Qwen3 的 transformers 会 import torch.distributed.tensor（PyTorch>=2.5）。
+
+    2.4 里同名 API 在 torch.distributed._tensor，先做别名；再旧就只能升级 torch
+    或改用 Qwen2.5-7B-Instruct。
+    """
+    import sys
+    import types
+
+    try:
+        import torch.distributed.tensor  # noqa: F401
+        return
+    except Exception:
+        pass
+    try:
+        import torch.distributed._tensor as _dt  # type: ignore
+
+        sys.modules["torch.distributed.tensor"] = _dt
+        return
+    except Exception:
+        pass
+    dummy = types.ModuleType("torch.distributed.tensor")
+    dummy.DTensor = type("DTensor", (), {})
+    dummy.Shard = type("Shard", (), {})
+    dummy.Replicate = type("Replicate", (), {})
+    dummy.Partial = type("Partial", (), {})
+    dummy.Placement = type("Placement", (), {})
+    sys.modules.setdefault("torch.distributed.tensor", dummy)
+
+
 class LocalQwenReplyTeacher:
     """本地 Qwen3-Instruct：只生成回复结构 JSON，不预测立场。"""
 
@@ -281,7 +311,17 @@ class LocalQwenReplyTeacher:
         temperature: float = 0.4,
     ):
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        _patch_torch_distributed_tensor()
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+        except Exception as exc:
+            raise RuntimeError(
+                "当前环境加载 Qwen3 失败（需要较新的 PyTorch，一般 >= 2.5）。\n"
+                "先查版本: python3.9 -c \"import torch,transformers; print(torch.__version__, transformers.__version__)\"\n"
+                "可选: 1) 升级 torch  2) 改用 --model Qwen/Qwen2.5-7B-Instruct --allow-download\n"
+                "原始错误: %s" % exc
+            ) from exc
 
         self.torch = torch
         local_only = not allow_download
@@ -289,13 +329,19 @@ class LocalQwenReplyTeacher:
             model_path, local_files_only=local_only, trust_remote_code=True
         )
         torch_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[dtype]
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype=torch_dtype,
-            device_map="auto" if device == "auto" else None,
-            local_files_only=local_only,
-            trust_remote_code=True,
-        )
+        try:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch_dtype,
+                device_map="auto" if device == "auto" else None,
+                local_files_only=local_only,
+                trust_remote_code=True,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "加载 %s 失败。若仍是 torch.distributed.tensor，请升级 PyTorch>=2.5，"
+                "或改用 Qwen/Qwen2.5-7B-Instruct。原始错误: %s" % (model_path, exc)
+            ) from exc
         if device != "auto":
             self.model.to(device)
         self.model.eval()

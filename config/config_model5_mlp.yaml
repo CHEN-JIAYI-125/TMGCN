@@ -1,0 +1,72 @@
+# ------------------------------------------------------------------
+# 实验 B：原版 TMGCN 四通道 + Grounding + Target–Claim MLP，首轮关掉对比学习。
+# models/__init__.py、datasets/__init__.py 用 model_graph_5_2 / dataset_graph_4。
+# python main_graph.py config/config_model5_mlp.yaml
+#
+# 对照：
+#   A  use_target_claim_mlp: false  cl_lambda: 0.0
+#   B  use_target_claim_mlp: true   cl_lambda: 0.0   ← 本文件
+#   C  use_target_claim_mlp: false  cl_lambda: 1.0
+#   D  use_target_claim_mlp: true   cl_lambda: 1.0
+# ------------------------------------------------------------------
+
+train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
+dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
+test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
+embedding_npy: /home/chenjiayi/data/csd/qwen_graph/embeddings.npy
+target_knowledge_npy: /home/chenjiayi/data/csd/qwen_graph/target_knowledge.npy
+
+hidden_size: 768
+input_size: 0
+num_classes: 3
+dropout: 0.1
+input_dropout: 0.0
+num_layers: 2
+hypergraph_attention: true
+rgcn_num_bases: 0
+
+use_speaker: 1
+use_dialogue: 1
+use_temporal: 1
+use_reply: 1
+bidirectional_temporal: false
+max_nodes_per_target: 0
+
+use_grounding: true
+use_target_claim_mlp: true
+
+cl_lambda: 0.0
+cl_mode: augment
+cl_pos_weight_same_target: 1.0
+cl_pos_weight_diff_target: 0.5
+cl_temperature: 0.2
+cl_feat_mask_rate: 0.2
+cl_noise_scale: 0.1
+cl_proj_dim: 128
+
+reply_distillation: 0
+use_reply_distillation: 0
+use_reply_kd: 0
+use_soft_reply_graph: 0
+reply_ablation: ""
+use_stance_kd: 0
+
+epoch_size: 20
+batchsize: 16
+patience: 0
+max_grad_norm: 1.0
+warmup_proportion: 0.2
+warmup_steps: 0
+gradient_accumulation_steps: 1
+adam_epsilon: 1.0e-8
+lr: 1.0e-4
+weight_decay: 1.0e-5
+logging_steps: 10
+
+cuda_index: 0
+seed: 1234
+debug: false
+time: ""
+model_type: GraphTracer_5
+result_root: ./result
+metric_on_last_sentence: true

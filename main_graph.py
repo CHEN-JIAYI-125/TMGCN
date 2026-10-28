@@ -148,6 +148,8 @@ class GraphConfig:
     cl_proj_dim: int = field(default=128)
     # v5 target-side stance semantic grounding (needs target_knowledge_npy)
     use_grounding: bool = field(default=False)
+    # Explicit target–context interaction MLP (requires use_grounding=True)
+    use_target_claim_mlp: bool = field(default=False)
     # 通道开关：0 关 / 1 开（由 yaml 控制，不在 __init__.py 里选）
     use_speaker: int = field(default=1)
     use_dialogue: int = field(default=1)

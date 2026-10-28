@@ -47,7 +47,7 @@ use_reply: 1
 #                get cl_pos_weight_diff_target; other stances = negatives.
 #     augment -> legacy self-supervised InfoNCE between two corrupted views
 #                of h (the 0.4536 configuration)
-cl_lambda: 1.0               # total loss = CE + cl_lambda * L_CL
+cl_lambda: 0.0               # 首轮消融：先关对比学习，只看 MLP；第二轮再改回 1.0
 cl_mode: augment
 cl_pos_weight_same_target: 1.0
 cl_pos_weight_diff_target: 0.5
@@ -87,3 +87,6 @@ result_root: ./result
 # evaluation: score only the last sentence of each doc_id (official CSD
 # setting). Full per-utterance predictions are still written to CSV.
 metric_on_last_sentence: true
+
+# Optional target–claim interaction MLP (needs use_grounding=true)
+use_target_claim_mlp: true
