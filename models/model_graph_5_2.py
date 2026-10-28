@@ -379,8 +379,27 @@ class HeterogeneousStanceTracerV5(nn.Module):
         # Target-side stance semantic grounding (disabled until a knowledge
         # prior of the right width arrives in the batch).
         self.use_grounding = bool(getattr(config, "use_grounding", False))
+        # Off by default: preserve all existing experiments/checkpoints.
+        self.use_target_claim_mlp = bool(getattr(config, "use_target_claim_mlp", False))
+        if self.use_target_claim_mlp and not self.use_grounding:
+            raise ValueError("use_target_claim_mlp requires use_grounding=True and target priors")
         if self.use_grounding:
             self.grounding = TargetGrounding(self.hidden_size, dropout=self.dropout)
+            # h: contextual node/claim; t: raw target; h_tar: stance-view grounding.
+            # Difference is directional, while product models alignment.
+            if self.use_target_claim_mlp:
+                pair_dim = self.hidden_size * 5 + 1
+                self.pair_mlp = nn.Sequential(
+                    nn.LayerNorm(pair_dim),
+                    nn.Linear(pair_dim, self.hidden_size),
+                    nn.GELU(),
+                    nn.Dropout(self.dropout),
+                    nn.Linear(self.hidden_size, self.hidden_size),
+                    nn.GELU(),
+                )
+                self.pair_gate = nn.Sequential(
+                    nn.Linear(self.hidden_size * 2, self.hidden_size), nn.Sigmoid()
+                )
             self.classifier = nn.Sequential(
                 nn.Linear(self.hidden_size * 3, self.hidden_size),
                 nn.GELU(),
@@ -577,7 +596,20 @@ class HeterogeneousStanceTracerV5(nn.Module):
                 torch.arange(target_knowledge.size(0), device=device),
                 (graph_ptr[1:] - graph_ptr[:-1]).clamp_min(0),
             )
-            logits = self.classifier(torch.cat([h, h_tar, t_repr[g_idx]], dim=-1))
+            t_nodes = t_repr[g_idx]
+            if self.use_target_claim_mlp:
+                # All features are target-conditioned. A negative similarity alone
+                # is NOT treated as an Against label: the head learns from gold labels.
+                similarity = F.cosine_similarity(h, t_nodes, dim=-1).unsqueeze(-1)
+                pair_features = torch.cat(
+                    [h, h_tar, t_nodes, h - t_nodes, h * t_nodes, similarity], dim=-1
+                )
+                pair_repr = self.pair_mlp(pair_features)
+                gate = self.pair_gate(torch.cat([h, pair_repr], dim=-1))
+                # Residual leaves existing graph context directly accessible.
+                logits = self.classifier(torch.cat([h + gate * pair_repr, h_tar, t_nodes], dim=-1))
+            else:
+                logits = self.classifier(torch.cat([h, h_tar, t_nodes], dim=-1))
         else:
             logits = self.classifier(h)  # [N_total_nodes, num_classes]
 
