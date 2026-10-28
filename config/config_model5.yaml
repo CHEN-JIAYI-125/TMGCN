@@ -87,3 +87,6 @@ result_root: ./result
 # evaluation: score only the last sentence of each doc_id (official CSD
 # setting). Full per-utterance predictions are still written to CSV.
 metric_on_last_sentence: true
+
+# Optional target–claim interaction MLP (ablation; default off in model)
+use_target_claim_mlp: true
