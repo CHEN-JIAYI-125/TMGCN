@@ -430,7 +430,7 @@ def target_graph_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     doc_final_doc_ids_list, doc_final_node_index_list = [], []
     doc_final_turn_index_list, doc_final_true_list = [], []
     target_ids_list, knowledge_list = [], []
-    related_noun_list, type_ids_list, claim_neg_list = [], []
+    related_noun_list, type_ids_list, claim_neg_list = [], [], []
     temporal_list, reply_list = [], []
     speaker_he_list, dialogue_he_list = [], []
     speaker_he_off = 0
