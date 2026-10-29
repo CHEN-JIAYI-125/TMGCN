@@ -150,6 +150,8 @@ class GraphConfig:
     use_grounding: bool = field(default=False)
     # Explicit target–context interaction MLP (requires use_grounding=True)
     use_target_claim_mlp: bool = field(default=False)
+    # Claim residual using related noun target (favor-claim ≈ against-noun)
+    use_claim_noun_polarity: bool = field(default=False)
     # 通道开关：0 关 / 1 开（由 yaml 控制，不在 __init__.py 里选）
     use_speaker: int = field(default=1)
     use_dialogue: int = field(default=1)

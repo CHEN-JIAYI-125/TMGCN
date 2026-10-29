@@ -42,11 +42,62 @@ def target_rows(template):
     return targets, texts
 
 
+def _patch_torch_distributed_tensor():
+    """Qwen3 transformers imports torch.distributed.tensor (PyTorch >= 2.5)."""
+    import sys
+    import types
+
+    def _mod(name, **attrs):
+        m = types.ModuleType(name)
+        for key, val in attrs.items():
+            setattr(m, key, val)
+        sys.modules[name] = m
+        return m
+
+    dummy_cls = type('DTensorDummy', (), {'__init__': lambda *a, **k: None})
+    try:
+        import torch.distributed.tensor  # noqa: F401
+        return
+    except Exception:
+        pass
+    try:
+        import torch.distributed._tensor as _dt  # type: ignore
+        sys.modules['torch.distributed.tensor'] = _dt
+        import torch.distributed as dist
+        dist.tensor = _dt
+        return
+    except Exception:
+        pass
+    tensor = _mod(
+        'torch.distributed.tensor',
+        DTensor=dummy_cls,
+        Shard=dummy_cls,
+        Replicate=dummy_cls,
+        Partial=dummy_cls,
+        Placement=dummy_cls,
+        DeviceMesh=dummy_cls,
+        distribute_tensor=lambda *a, **k: None,
+        distribute_module=lambda *a, **k: None,
+    )
+    _mod(
+        'torch.distributed.tensor.placement_types',
+        Placement=dummy_cls, Shard=dummy_cls, Replicate=dummy_cls, Partial=dummy_cls,
+    )
+    _mod('torch.distributed.tensor.device_mesh', DeviceMesh=dummy_cls)
+    try:
+        import torch.distributed as dist
+        dist.tensor = tensor
+    except Exception:
+        pass
+
+
 def main():
     import numpy as np
     import torch
     import torch.nn.functional as F
     import yaml
+
+    _patch_torch_distributed_tensor()
     from transformers import AutoModel, AutoTokenizer
 
     p = argparse.ArgumentParser(description=__doc__)

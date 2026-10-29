@@ -381,6 +381,8 @@ class HeterogeneousStanceTracerV5(nn.Module):
         self.use_grounding = bool(getattr(config, "use_grounding", False))
         # Off by default: preserve all existing experiments/checkpoints.
         self.use_target_claim_mlp = bool(getattr(config, "use_target_claim_mlp", False))
+        # Residual claim head: claim stance often opposes a related noun target.
+        self.use_claim_noun_polarity = bool(getattr(config, "use_claim_noun_polarity", False))
         if self.use_target_claim_mlp and not self.use_grounding:
             raise ValueError("use_target_claim_mlp requires use_grounding=True and target priors")
         if self.use_grounding:
@@ -408,6 +410,18 @@ class HeterogeneousStanceTracerV5(nn.Module):
         else:
             self.grounding = None
             self.classifier = nn.Linear(self.hidden_size, self.num_classes)
+
+        if self.use_claim_noun_polarity:
+            # [h, t_claim, t_noun, sim, negated] -> 3-class residual, zero-init
+            # so the first step matches the original classifier.
+            self.claim_adj = nn.Sequential(
+                nn.Linear(self.hidden_size * 3 + 2, self.hidden_size),
+                nn.GELU(),
+                nn.Dropout(self.dropout),
+                nn.Linear(self.hidden_size, self.num_classes),
+            )
+            nn.init.zeros_(self.claim_adj[-1].weight)
+            nn.init.zeros_(self.claim_adj[-1].bias)
         
         self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_LABEL)
 
@@ -610,6 +624,28 @@ class HeterogeneousStanceTracerV5(nn.Module):
                 logits = self.classifier(torch.cat([h + gate * pair_repr, h_tar, t_nodes], dim=-1))
             else:
                 logits = self.classifier(torch.cat([h, h_tar, t_nodes], dim=-1))
+            if self.use_claim_noun_polarity:
+                type_ids = kwargs.get("target_type_ids", None)
+                noun_know = kwargs.get("related_noun_knowledge", None)
+                claim_neg = kwargs.get("claim_negated", None)
+                if (
+                    type_ids is not None
+                    and noun_know is not None
+                    and claim_neg is not None
+                    and noun_know.dim() == 3
+                    and noun_know.size(1) == 4
+                    and noun_know.size(-1) > 0
+                ):
+                    noun_know = self.input_proj(noun_know)
+                    t_noun = noun_know[:, 0, :][g_idx]
+                    sim_noun = F.cosine_similarity(h, t_noun, dim=-1).unsqueeze(-1)
+                    neg = claim_neg.to(device=device, dtype=h.dtype).unsqueeze(-1)
+                    neg_nodes = neg[g_idx]
+                    adj = self.claim_adj(
+                        torch.cat([h, t_nodes, t_noun, sim_noun, neg_nodes], dim=-1)
+                    )
+                    claim_mask = (type_ids.view(-1).to(device) == 1).unsqueeze(-1).to(adj.dtype)
+                    logits = logits + claim_mask * adj
         else:
             logits = self.classifier(h)  # [N_total_nodes, num_classes]
 

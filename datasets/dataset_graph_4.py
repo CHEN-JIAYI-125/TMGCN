@@ -115,6 +115,9 @@ class TargetGraph:
     # knowledge npy is not configured). Row 0 is the un-grounded target
     # representation t_i; rows 1..3 form K = [k^B; k^F; k^A] for grounding.
     target_knowledge: torch.Tensor = field(default_factory=lambda: torch.zeros((0, 0)))
+    # Related noun-target prior for claim graphs (zeros when unpaired).
+    related_noun_knowledge: torch.Tensor = field(default_factory=lambda: torch.zeros((0, 0)))
+    claim_negated: int = 0
 
     # Per-doc scoring mapping: CSD scores each doc by its final sentence.
     doc_final_doc_ids: torch.Tensor = field(default_factory=lambda: torch.zeros((0,), dtype=torch.long))
@@ -138,6 +141,8 @@ class TargetGraph:
             "target_text": self.target_text,
             "target_type": self.target_type,
             "target_knowledge": self.target_knowledge,
+            "related_noun_knowledge": self.related_noun_knowledge,
+            "claim_negated": self.claim_negated,
             "x": self.x,
             "y": self.y,
             "speaker_ids": self.speaker_ids,
@@ -261,6 +266,10 @@ class TargetGraphDataset(Dataset):
             self.target_types.append(graph.target_type)
             self.graphs.append(graph)
 
+        from datasets.claim_noun import attach_claim_noun_fields
+
+        attach_claim_noun_fields(self.graphs, knowledge_store)
+
         if knowledge_store is not None and n_missing:
             logger.warning(
                 "%d/%d targets missing from the knowledge index; using zero priors for them",
@@ -376,6 +385,8 @@ class TargetGraphDataset(Dataset):
             target_text=graph.target_text,
             target_type=graph.target_type,
             target_knowledge=graph.target_knowledge,
+            related_noun_knowledge=graph.related_noun_knowledge,
+            claim_negated=graph.claim_negated,
             x=graph.x[sel],
             y=graph.y[sel],
             speaker_ids=graph.speaker_ids[sel],
@@ -419,6 +430,7 @@ def target_graph_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     doc_final_doc_ids_list, doc_final_node_index_list = [], []
     doc_final_turn_index_list, doc_final_true_list = [], []
     target_ids_list, knowledge_list = [], []
+    related_noun_list, type_ids_list, claim_neg_list = [], []
     temporal_list, reply_list = [], []
     speaker_he_list, dialogue_he_list = [], []
     speaker_he_off = 0
@@ -437,6 +449,11 @@ def target_graph_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         doc_final_true_list.append(item["doc_final_true"])
         target_ids_list.append(torch.full((item["num_nodes"],), item["target_id"], dtype=torch.long))
         knowledge_list.append(item.get("target_knowledge", torch.zeros((0, 0))))
+        related_noun_list.append(item.get("related_noun_knowledge", torch.zeros((0, 0))))
+        ttype = str(item.get("target_type", "") or "")
+        type_id = 1 if ttype == "c" else 0
+        type_ids_list.append(torch.full((item["num_nodes"],), type_id, dtype=torch.long))
+        claim_neg_list.append(int(item.get("claim_negated", 0)))
 
         temporal_list.append(item["temporal_edge_index"] + off)
         reply_list.append(item["reply_candidate_edge_index"] + off)
@@ -478,6 +495,11 @@ def target_graph_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         "target_knowledge": (
             torch.stack(knowledge_list, dim=0) if knowledge_list else torch.zeros((0, 4, 0))
         ),
+        "related_noun_knowledge": (
+            torch.stack(related_noun_list, dim=0) if related_noun_list else torch.zeros((0, 4, 0))
+        ),
+        "target_type_ids": torch.cat(type_ids_list, dim=0) if type_ids_list else torch.zeros((0,), dtype=torch.long),
+        "claim_negated": torch.tensor(claim_neg_list, dtype=torch.long),
         "speaker_hyperedge_index": cat2(speaker_he_list),
         "dialogue_hyperedge_index": cat2(dialogue_he_list),
         "temporal_edge_index": cat2(temporal_list),
