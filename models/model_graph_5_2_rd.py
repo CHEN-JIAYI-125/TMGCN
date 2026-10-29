@@ -339,9 +339,12 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
                 torch.arange(target_knowledge.size(0), device=device),
                 (graph_ptr[1:] - graph_ptr[:-1]).clamp_min(0),
             )
-            logits = self.classifier(torch.cat([h, h_tar, t_repr[g_idx]], dim=-1))
+            logits = self._predict_logits(
+                torch.cat([h, h_tar, t_repr[g_idx]], dim=-1),
+                kwargs.get("target_type_ids"),
+            )
         else:
-            logits = self.classifier(h)
+            logits = self._predict_logits(h, kwargs.get("target_type_ids"))
 
         loss_stance = None
         if y is not None:
@@ -350,6 +353,7 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
                 loss_stance = self.criterion(logits, y)
             else:
                 loss_stance = logits.sum() * 0.0  # keep the graph in autograd
+            loss_stance = self._add_opp_loss(loss_stance, logits, kwargs)
 
         loss = loss_stance
         loss_cl = None

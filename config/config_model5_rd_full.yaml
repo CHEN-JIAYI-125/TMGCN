@@ -16,10 +16,9 @@
 train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
 dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
 test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
-# 节点特征：离线 Qwen embedding。原来的 RoBERTa：
-# /home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
-embedding_npy: /home/chenjiayi/data/csd/qwen_graph/embeddings.npy
-target_knowledge_npy: /home/chenjiayi/data/csd/qwen_graph/target_knowledge.npy
+# 与 8144bee 对齐：RoBERTa 句向量，不用 qwen_graph。
+embedding_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
+target_knowledge_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/target_knowledge.npy
 
 hidden_size: 768
 input_size: 0
@@ -58,6 +57,8 @@ use_reply_kd: 1
 use_soft_reply_graph: 1
 reply_graph_source: student
 reply_ablation: "E"
+use_claim_noun_polarity: false
+use_target_claim_mlp: false
 
 # 立场/语义蒸馏关闭
 use_stance_kd: 0

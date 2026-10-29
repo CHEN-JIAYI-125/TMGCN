@@ -79,6 +79,7 @@ def attach_claim_noun_fields(
     for graph in graphs:
         typ = str(getattr(graph, "target_type", "") or "")
         graph.claim_negated = 0
+        graph.related_noun_text = ""
         if dim:
             import torch
             graph.related_noun_knowledge = torch.zeros((4, dim), dtype=torch.float32)
@@ -89,13 +90,55 @@ def attach_claim_noun_fields(
             graph.claim_negated = 1
             n_neg += 1
         noun = related_noun(graph.target_text, nouns)
-        if noun and knowledge_store is not None:
-            know = knowledge_store.get(noun)
-            if know.abs().sum() > 0:
-                graph.related_noun_knowledge = know
-                n_paired += 1
+        if noun:
+            graph.related_noun_text = noun
+            if knowledge_store is not None:
+                know = knowledge_store.get(noun)
+                if know.abs().sum() > 0:
+                    graph.related_noun_knowledge = know
+                    n_paired += 1
+    attach_opp_labels(graphs)
     logger.info(
         "claim–noun polarity | claims=%d negated=%d paired_noun=%d",
         n_claim, n_neg, n_paired,
     )
     return n_paired, n_claim
+
+
+def attach_opp_labels(graphs: List[Any]) -> int:
+    """For negated claims, extra train target = flipped gold of the same utterance on the related noun.
+
+    Favor(0) <-> Against(1), Neutral stays 2. Unpaired nodes stay -100 (ignored).
+    """
+    import torch
+
+    noun_lab: Dict[Tuple[str, int], int] = {}
+    for graph in graphs:
+        if str(getattr(graph, "target_type", "") or "") != "n":
+            continue
+        for gid, lab in zip(graph.utterance_ids.tolist(), graph.y.tolist()):
+            if int(lab) >= 0:
+                noun_lab[(graph.target_text, int(gid))] = int(lab)
+    n_opp = 0
+    for graph in graphs:
+        n = graph.num_nodes
+        opp = torch.full((n,), -100, dtype=torch.long)
+        if (
+            str(getattr(graph, "target_type", "") or "") == "c"
+            and int(getattr(graph, "claim_negated", 0)) == 1
+            and getattr(graph, "related_noun_text", "")
+        ):
+            noun = graph.related_noun_text
+            for i, gid in enumerate(graph.utterance_ids.tolist()):
+                lab = noun_lab.get((noun, int(gid)))
+                if lab is None:
+                    continue
+                if lab in (0, 1):
+                    opp[i] = 1 - lab
+                    n_opp += 1
+                elif lab == 2:
+                    opp[i] = 2
+                    n_opp += 1
+        graph.opp_y = opp
+    logger.info("opposite aux labels on %d claim nodes", n_opp)
+    return n_opp

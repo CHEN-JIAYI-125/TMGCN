@@ -117,7 +117,9 @@ class TargetGraph:
     target_knowledge: torch.Tensor = field(default_factory=lambda: torch.zeros((0, 0)))
     # Related noun-target prior for claim graphs (zeros when unpaired).
     related_noun_knowledge: torch.Tensor = field(default_factory=lambda: torch.zeros((0, 0)))
+    related_noun_text: str = ""
     claim_negated: int = 0
+    opp_y: torch.Tensor = field(default_factory=lambda: torch.zeros((0,), dtype=torch.long))
 
     # Per-doc scoring mapping: CSD scores each doc by its final sentence.
     doc_final_doc_ids: torch.Tensor = field(default_factory=lambda: torch.zeros((0,), dtype=torch.long))
@@ -142,7 +144,9 @@ class TargetGraph:
             "target_type": self.target_type,
             "target_knowledge": self.target_knowledge,
             "related_noun_knowledge": self.related_noun_knowledge,
+            "related_noun_text": self.related_noun_text,
             "claim_negated": self.claim_negated,
+            "opp_y": self.opp_y if self.opp_y.numel() else torch.full((self.num_nodes,), -100, dtype=torch.long),
             "x": self.x,
             "y": self.y,
             "speaker_ids": self.speaker_ids,
@@ -386,7 +390,13 @@ class TargetGraphDataset(Dataset):
             target_type=graph.target_type,
             target_knowledge=graph.target_knowledge,
             related_noun_knowledge=graph.related_noun_knowledge,
+            related_noun_text=graph.related_noun_text,
             claim_negated=graph.claim_negated,
+            opp_y=(
+                graph.opp_y[sel]
+                if graph.opp_y.numel() == graph.num_nodes
+                else torch.full((len(selected),), -100, dtype=torch.long)
+            ),
             x=graph.x[sel],
             y=graph.y[sel],
             speaker_ids=graph.speaker_ids[sel],
@@ -500,6 +510,13 @@ def target_graph_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         ),
         "target_type_ids": torch.cat(type_ids_list, dim=0) if type_ids_list else torch.zeros((0,), dtype=torch.long),
         "claim_negated": torch.tensor(claim_neg_list, dtype=torch.long),
+        "opp_y": torch.cat(
+            [
+                item.get("opp_y", torch.full((item["num_nodes"],), -100, dtype=torch.long))
+                for item in batch
+            ],
+            dim=0,
+        ) if batch else torch.zeros((0,), dtype=torch.long),
         "speaker_hyperedge_index": cat2(speaker_he_list),
         "dialogue_hyperedge_index": cat2(dialogue_he_list),
         "temporal_edge_index": cat2(temporal_list),

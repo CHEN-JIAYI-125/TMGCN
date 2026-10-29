@@ -1,0 +1,79 @@
+# ------------------------------------------------------------------
+# 8144bee (RD + RoBERTa) + claim/noun 分头 + 翻转 noun 金标辅助 CE。
+# 不用极性残差。极性残差会改共享 GCN，上次 mixed/claim/noun 都掉了。
+#
+# python main_graph.py config/config_model5_rd_type.yaml
+# ------------------------------------------------------------------
+
+train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
+dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
+test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
+embedding_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
+target_knowledge_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/target_knowledge.npy
+
+hidden_size: 768
+input_size: 0
+num_classes: 3
+dropout: 0.1
+input_dropout: 0.0
+num_layers: 2
+hypergraph_attention: true
+rgcn_num_bases: 0
+use_grounding: true
+use_speaker: 1
+use_dialogue: 1
+use_temporal: 1
+use_reply: 1
+
+cl_lambda: 1.0
+cl_mode: augment
+cl_pos_weight_same_target: 1.0
+cl_pos_weight_diff_target: 0.5
+cl_temperature: 0.2
+cl_feat_mask_rate: 0.2
+cl_noise_scale: 0.1
+cl_proj_dim: 128
+
+bidirectional_temporal: false
+max_nodes_per_target: 0
+
+reply_distillation: 1
+use_reply_distillation: 1
+teacher_path: data/reply_teacher/
+reply_temperature: 3
+reply_kd_lambda: 0.5
+reply_threshold: 0.05
+use_reply_kd: 1
+use_soft_reply_graph: 1
+reply_graph_source: student
+reply_ablation: "E"
+use_claim_noun_polarity: false
+use_target_claim_mlp: false
+use_type_heads: true
+opp_lambda: 0.3
+
+use_stance_kd: 0
+stance_teacher_path: data/stance_teacher/
+stance_kd_lambda: 0.5
+stance_kd_temperature: 3.0
+stance_kd_scope: last_sentence
+
+epoch_size: 20
+batchsize: 16
+patience: 0
+max_grad_norm: 1.0
+warmup_proportion: 0.2
+warmup_steps: 0
+gradient_accumulation_steps: 1
+adam_epsilon: 1.0e-8
+lr: 1.0e-4
+weight_decay: 1.0e-5
+logging_steps: 10
+
+cuda_index: 0
+seed: 1234
+debug: false
+time: ""
+model_type: GraphTracer_5
+result_root: ./result
+metric_on_last_sentence: true

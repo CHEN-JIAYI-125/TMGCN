@@ -43,7 +43,7 @@ use_soft_reply_graph: 0
 reply_ablation: ""
 use_stance_kd: 0
 use_target_claim_mlp: false
-use_claim_noun_polarity: true
+use_claim_noun_polarity: false
 
 epoch_size: 20
 batchsize: 16

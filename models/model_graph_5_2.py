@@ -71,6 +71,7 @@ loss is CE with ignore_index=-100.
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -422,6 +423,11 @@ class HeterogeneousStanceTracerV5(nn.Module):
             )
             nn.init.zeros_(self.claim_adj[-1].weight)
             nn.init.zeros_(self.claim_adj[-1].bias)
+
+        self.use_type_heads = bool(getattr(config, "use_type_heads", False))
+        self.opp_lambda = float(getattr(config, "opp_lambda", 0.0))
+        if self.use_type_heads:
+            self.classifier_claim = copy.deepcopy(self.classifier)
         
         self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_LABEL)
 
@@ -550,6 +556,38 @@ class HeterogeneousStanceTracerV5(nn.Module):
             v = v + torch.randn_like(v) * self.cl_noise_scale
         return v
 
+    def _predict_logits(
+        self,
+        feat: torch.Tensor,
+        type_ids: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Noun vs claim heads. First step equals the original classifier (deepcopy)."""
+        if not self.use_type_heads or not hasattr(self, "classifier_claim"):
+            return self.classifier(feat)
+        logits_n = self.classifier(feat)
+        logits_c = self.classifier_claim(feat)
+        if type_ids is None or type_ids.numel() != feat.size(0):
+            return logits_n
+        claim_mask = (type_ids.view(-1).to(device=feat.device) == 1).unsqueeze(-1)
+        return torch.where(claim_mask, logits_c, logits_n)
+
+    def _add_opp_loss(
+        self,
+        loss: Optional[torch.Tensor],
+        logits: torch.Tensor,
+        kwargs: Dict[str, Any],
+    ) -> Optional[torch.Tensor]:
+        """Train-only CE to flipped related-noun gold on negated claims."""
+        if loss is None or (not self.training) or self.opp_lambda <= 0.0:
+            return loss
+        opp_y = kwargs.get("opp_y", None)
+        if opp_y is None or opp_y.numel() != logits.size(0):
+            return loss
+        opp_y = opp_y.view(-1).long().to(logits.device)
+        if (opp_y != IGNORE_LABEL).any():
+            loss = loss + self.opp_lambda * self.criterion(logits, opp_y)
+        return loss
+
     def forward(
         self,
         x: torch.Tensor,
@@ -621,9 +659,11 @@ class HeterogeneousStanceTracerV5(nn.Module):
                 pair_repr = self.pair_mlp(pair_features)
                 gate = self.pair_gate(torch.cat([h, pair_repr], dim=-1))
                 # Residual leaves existing graph context directly accessible.
-                logits = self.classifier(torch.cat([h + gate * pair_repr, h_tar, t_nodes], dim=-1))
+                feat = torch.cat([h + gate * pair_repr, h_tar, t_nodes], dim=-1)
+                logits = self._predict_logits(feat, kwargs.get("target_type_ids"))
             else:
-                logits = self.classifier(torch.cat([h, h_tar, t_nodes], dim=-1))
+                feat = torch.cat([h, h_tar, t_nodes], dim=-1)
+                logits = self._predict_logits(feat, kwargs.get("target_type_ids"))
             if self.use_claim_noun_polarity:
                 type_ids = kwargs.get("target_type_ids", None)
                 noun_know = kwargs.get("related_noun_knowledge", None)
@@ -647,7 +687,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
                     claim_mask = (type_ids.view(-1).to(device) == 1).unsqueeze(-1).to(adj.dtype)
                     logits = logits + claim_mask * adj
         else:
-            logits = self.classifier(h)  # [N_total_nodes, num_classes]
+            logits = self._predict_logits(h, kwargs.get("target_type_ids"))  # [N_total_nodes, num_classes]
 
         loss = None
         if y is not None:
@@ -656,6 +696,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
                 loss = self.criterion(logits, y)
             else:
                 loss = logits.sum() * 0.0  # keep the graph in autograd
+            loss = self._add_opp_loss(loss, logits, kwargs)
 
         loss_cl = None
         doc_final_node_index = kwargs.get("doc_final_node_index", None)

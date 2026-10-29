@@ -152,6 +152,10 @@ class GraphConfig:
     use_target_claim_mlp: bool = field(default=False)
     # Claim residual using related noun target (favor-claim ≈ against-noun)
     use_claim_noun_polarity: bool = field(default=False)
+    # Separate claim/noun classifiers (no residual on logits)
+    use_type_heads: bool = field(default=False)
+    # Train-only: CE to flipped noun gold on negated paired claims
+    opp_lambda: float = field(default=0.0)
     # 通道开关：0 关 / 1 开（由 yaml 控制，不在 __init__.py 里选）
     use_speaker: int = field(default=1)
     use_dialogue: int = field(default=1)
