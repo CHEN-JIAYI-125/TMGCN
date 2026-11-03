@@ -126,53 +126,83 @@ def units_to_index(units):
     return index
 
 
-def _patch_torch_distributed_tensor():
-    """Qwen3 transformers imports torch.distributed.tensor (PyTorch >= 2.5)."""
+def _install_qwen_torch_shims():
+    """Fill PyTorch 2.5-only modules so Qwen3 transformers can import on 2.1–2.4.
+
+    Do not return early if torch.distributed._tensor exists: that module is not
+    a package and lacks placement_types / parallel, which still crashes import.
+    """
     import sys
     import types
 
-    def _mod(name, **attrs):
-        m = types.ModuleType(name)
-        for key, val in attrs.items():
-            setattr(m, key, val)
-        sys.modules[name] = m
-        return m
-
     dummy_cls = type('DTensorDummy', (), {'__init__': lambda *a, **k: None})
-    try:
-        import torch.distributed.tensor  # noqa: F401
-        return
-    except Exception:
-        pass
-    try:
-        import torch.distributed._tensor as _dt  # type: ignore
-        sys.modules['torch.distributed.tensor'] = _dt
-        import torch.distributed as dist
-        dist.tensor = _dt
-        return
-    except Exception:
-        pass
-    tensor = _mod(
+
+    def ensure(name, is_package=False, **attrs):
+        mod = sys.modules.get(name)
+        if mod is None:
+            mod = types.ModuleType(name)
+            sys.modules[name] = mod
+        if is_package and not hasattr(mod, '__path__'):
+            mod.__path__ = []
+        parent, _, child = name.rpartition('.')
+        if parent and parent in sys.modules:
+            setattr(sys.modules[parent], child, mod)
+        for key, val in attrs.items():
+            if not hasattr(mod, key):
+                setattr(mod, key, val)
+        return mod
+
+    ensure('torch.distributed', is_package=True)
+    tensor = ensure(
         'torch.distributed.tensor',
+        is_package=True,
         DTensor=dummy_cls,
         Shard=dummy_cls,
         Replicate=dummy_cls,
         Partial=dummy_cls,
         Placement=dummy_cls,
         DeviceMesh=dummy_cls,
+        TensorMeta=dummy_cls,
+        DTensorSpec=dummy_cls,
         distribute_tensor=lambda *a, **k: None,
         distribute_module=lambda *a, **k: None,
+        ones=lambda *a, **k: None,
+        zeros=lambda *a, **k: None,
+        empty=lambda *a, **k: None,
     )
-    _mod(
+    ensure(
         'torch.distributed.tensor.placement_types',
         Placement=dummy_cls, Shard=dummy_cls, Replicate=dummy_cls, Partial=dummy_cls,
     )
-    _mod('torch.distributed.tensor.device_mesh', DeviceMesh=dummy_cls)
+    ensure('torch.distributed.tensor.device_mesh', DeviceMesh=dummy_cls)
+    ensure(
+        'torch.distributed.tensor.parallel',
+        ColwiseParallel=dummy_cls,
+        RowwiseParallel=dummy_cls,
+        SequenceParallel=dummy_cls,
+        PrepareModuleInput=dummy_cls,
+        PrepareModuleOutput=dummy_cls,
+        parallelize_module=lambda *a, **k: None,
+    )
+    ensure('torch.distributed.tensor._dtensor')
+    ensure('torch.distributed.tensor._utils')
     try:
         import torch.distributed as dist
         dist.tensor = tensor
     except Exception:
         pass
+
+    try:
+        import torch.nn.attention.flex_attention  # noqa: F401
+    except Exception:
+        ensure('torch.nn.attention', is_package=True)
+        ensure(
+            'torch.nn.attention.flex_attention',
+            BlockMask=dummy_cls,
+            create_block_mask=lambda *a, **k: None,
+            flex_attention=lambda *a, **k: None,
+            _DEFAULT_SPARSE_BLOCK_SIZE=128,
+        )
 
 
 def main():
@@ -181,8 +211,10 @@ def main():
     import torch.nn.functional as F
     import yaml
 
-    _patch_torch_distributed_tensor()
+    _install_qwen_torch_shims()
+    import transformers
     from transformers import AutoModel, AutoTokenizer
+    print(f'torch={torch.__version__} transformers={transformers.__version__}', flush=True)
 
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--config', default='config/config_model5.yaml')
@@ -222,9 +254,17 @@ def main():
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     dtype = {'bf16': torch.bfloat16, 'fp16': torch.float16, 'fp32': torch.float32}[a.dtype]
-    model = AutoModel.from_pretrained(
-        a.model, torch_dtype=dtype, local_files_only=local_only, trust_remote_code=True,
-    ).to(a.device).eval()
+    try:
+        model = AutoModel.from_pretrained(
+            a.model, torch_dtype=dtype, local_files_only=local_only, trust_remote_code=True,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            '加载 Qwen3-Embedding 失败。当前 torch=%s transformers=%s。'
+            '不要开训练，先把这段完整 traceback 留下。原始错误: %r'
+            % (torch.__version__, transformers.__version__, exc)
+        ) from exc
+    model = model.to(a.device).eval()
     model.requires_grad_(False)
     dim = model.config.hidden_size
     truncated = 0
