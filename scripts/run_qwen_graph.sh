@@ -14,7 +14,7 @@ echo "Commit: $(git rev-parse HEAD)"
 "$PYTHON" -m scripts.smoke_qwen_graph
 "$PYTHON" -u offline/build_qwen_graph.py --config "$CONFIG" --model "$MODEL" \
   --output "$RUN_DIR/cache" --device cuda:0 --batch-size "${BATCH_SIZE:-4}" \
-  --max-length "${MAX_LENGTH:-512}" 2>&1 | tee "$RUN_DIR/embedding.log"
+  --max-length "${MAX_LENGTH:-2048}" ${OVERWRITE:+--overwrite} 2>&1 | tee "$RUN_DIR/embedding.log"
 "$PYTHON" -u main_graph.py "$RUN_DIR/cache/train.yaml" 2>&1 | tee "$RUN_DIR/train.log"
 echo "TRAINING_COMPLETE commit=$(git rev-parse HEAD)"
 tail -n 30 "$RUN_DIR/train.log"

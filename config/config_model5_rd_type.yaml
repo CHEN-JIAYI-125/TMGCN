@@ -1,15 +1,17 @@
 # ------------------------------------------------------------------
-# 8144bee (RD + RoBERTa) + claim/noun 分头 + 翻转 noun 金标辅助 CE。
-# 不用极性残差。极性残差会改共享 GCN，上次 mixed/claim/noun 都掉了。
-#
-# python main_graph.py config/config_model5_rd_type.yaml
+# RD + claim/noun 分头 + 翻转 noun 金标辅助 CE + 会话立场 Qwen embedding。
+# 先生成 cache，再训练：
+#   python offline/build_qwen_graph.py --config config/config_model5_rd_type.yaml \
+#     --model /home/chenjiayi/models/Qwen3-Embedding-8B \
+#     --output /home/chenjiayi/data/csd/qwen_stance --device cuda:0 --overwrite
+#   python main_graph.py config/config_model5_rd_type.yaml
 # ------------------------------------------------------------------
 
 train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
 dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
 test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
-embedding_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/embeddings.npy
-target_knowledge_npy: /home/chenjiayi/data/csd/raw_with_all_labels_v3/target_knowledge.npy
+embedding_npy: /home/chenjiayi/data/csd/qwen_stance/embeddings.npy
+target_knowledge_npy: /home/chenjiayi/data/csd/qwen_stance/target_knowledge.npy
 
 hidden_size: 768
 input_size: 0

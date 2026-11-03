@@ -9,8 +9,9 @@ This dataset works on the outputs of `graph/offline/build_embeddings.py`:
 
 - `raw_with_global_ids/*.json`  : original samples augmented with a
   `global_ids` field aligned with `sentences`.
-- `embeddings.npy`              : float32 matrix [N, D]; row `i` is the
-  embedding of `global_id == i`.
+- `embeddings.npy`              : float32 matrix [N, D]. Row `i` is
+  `global_id == i`, unless `embeddings_index.json` is present, in which
+  case rows are keyed by (target, global_id).
 
 Design notes
 ------------
@@ -48,6 +49,11 @@ class UtteranceEmbeddingStore:
     Loads the offline-computed embedding matrix once and serves rows by
     utterance index. This store is intentionally read-only: it is never used
     to create a trainable `nn.Embedding(utterance_id)`.
+
+    If `embeddings_index.json` sits next to the npy, rows are keyed by
+    (target, global_id) so the same sentence can have opposite-stance
+    vectors under different targets. Without that index, row i is global_id i
+    (RoBERTa / older Qwen caches).
     """
 
     def __init__(self, npy_path: str):
@@ -56,10 +62,20 @@ class UtteranceEmbeddingStore:
         if arr.ndim != 2:
             raise ValueError(f"embeddings must be a [N, D] matrix, got shape {arr.shape}")
         self.data = torch.from_numpy(np.ascontiguousarray(arr, dtype=np.float32)).float()
+        self.keyed_index: Optional[Dict[tuple, int]] = None
+        index_path = Path(self.npy_path).with_name("embeddings_index.json")
+        if index_path.is_file():
+            raw = json.loads(index_path.read_text(encoding="utf-8"))
+            keyed: Dict[tuple, int] = {}
+            for target, mapping in raw.items():
+                for gid_s, row in mapping.items():
+                    keyed[(str(target), int(gid_s))] = int(row)
+            self.keyed_index = keyed
         logger.info(
-            "loaded frozen utterance embeddings from %s: %s",
+            "loaded frozen utterance embeddings from %s: %s%s",
             self.npy_path,
             tuple(self.data.shape),
+            f", keyed (target,gid)={len(self.keyed_index)}" if self.keyed_index is not None else "",
         )
 
     @property
@@ -70,12 +86,42 @@ class UtteranceEmbeddingStore:
     def dim(self) -> int:
         return int(self.data.size(1))
 
-    def get(self, utterance_ids: torch.Tensor) -> torch.Tensor:
+    def get(
+        self,
+        utterance_ids: torch.Tensor,
+        target_text: Optional[str] = None,
+    ) -> torch.Tensor:
         """Return embeddings for the given utterance indices."""
         ids = utterance_ids
         if not torch.is_tensor(ids):
             ids = torch.tensor(ids, dtype=torch.long)
         ids = ids.view(-1).long()
+        if self.keyed_index is not None:
+            if not target_text:
+                raise RuntimeError(
+                    "stance-conditioned embeddings require target_text; "
+                    "rebuild graphs after generating embeddings_index.json"
+                )
+            rows = []
+            missing = []
+            for gid in ids.tolist():
+                row = self.keyed_index.get((str(target_text), int(gid)))
+                if row is None:
+                    missing.append(int(gid))
+                else:
+                    rows.append(row)
+            if missing:
+                raise KeyError(
+                    "missing (target,gid) embeddings for target=%r ids=%s"
+                    % (target_text, missing[:8])
+                )
+            rows_t = torch.tensor(rows, dtype=torch.long)
+            if rows_t.numel() > 0 and (rows_t.min() < 0 or rows_t.max() >= self.size):
+                raise IndexError(
+                    f"keyed embedding rows out of range [0, {self.size}): "
+                    f"min={rows_t.min().item()}, max={rows_t.max().item()}"
+                )
+            return self.data[rows_t]
         if ids.numel() > 0 and (ids.min() < 0 or ids.max() >= self.size):
             raise IndexError(
                 f"utterance ids out of range [0, {self.size}): min={ids.min().item()}, max={ids.max().item()}"
@@ -348,7 +394,7 @@ def build_target_graph(
 
     # --- node attributes ---
     utterance_ids = torch.tensor(node_uids, dtype=torch.long)
-    x = embedding_store.get(utterance_ids)
+    x = embedding_store.get(utterance_ids, target_text=target_text)
     y = torch.tensor(
         [lab if lab >= 0 else IGNORE_LABEL for lab in node_labels], dtype=torch.long
     )
