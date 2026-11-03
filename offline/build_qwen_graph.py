@@ -254,17 +254,41 @@ def main():
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     dtype = {'bf16': torch.bfloat16, 'fp16': torch.float16, 'fp32': torch.float32}[a.dtype]
-    try:
-        model = AutoModel.from_pretrained(
-            a.model, torch_dtype=dtype, local_files_only=local_only, trust_remote_code=True,
+    torch_ver = torch.__version__.split('+')[0].split('.')
+    torch_tuple = (int(torch_ver[0]), int(torch_ver[1]))
+    if dtype is torch.bfloat16 and torch.cuda.is_available():
+        cap = torch.cuda.get_device_capability(0)
+        if cap[0] < 8:
+            print('GPU compute capability %s does not support bf16; using fp16' % (cap,), flush=True)
+            dtype = torch.float16
+    if torch_tuple < (2, 0):
+        print(
+            'torch %s cannot import modeling_qwen3; using legacy eager encoder. '
+            'Prefer --batch-size 1 --dtype fp16' % torch.__version__,
+            flush=True,
         )
-    except Exception as exc:
-        raise RuntimeError(
-            '加载 Qwen3-Embedding 失败。当前 torch=%s transformers=%s。'
-            '不要开训练，先把这段完整 traceback 留下。原始错误: %r'
-            % (torch.__version__, transformers.__version__, exc)
-        ) from exc
-    model = model.to(a.device).eval()
+        try:
+            from qwen3_legacy import Qwen3LegacyEncoder
+        except ImportError:
+            from offline.qwen3_legacy import Qwen3LegacyEncoder
+        model = Qwen3LegacyEncoder.from_pretrained(a.model, dtype=dtype, device=a.device)
+    else:
+        try:
+            model = AutoModel.from_pretrained(
+                a.model, torch_dtype=dtype, local_files_only=local_only, trust_remote_code=True,
+                attn_implementation='eager',
+            )
+        except TypeError:
+            model = AutoModel.from_pretrained(
+                a.model, torch_dtype=dtype, local_files_only=local_only, trust_remote_code=True,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                '加载 Qwen3-Embedding 失败。当前 torch=%s transformers=%s。原始错误: %r'
+                % (torch.__version__, transformers.__version__, exc)
+            ) from exc
+        model = model.to(a.device)
+    model = model.eval()
     model.requires_grad_(False)
     dim = model.config.hidden_size
     truncated = 0

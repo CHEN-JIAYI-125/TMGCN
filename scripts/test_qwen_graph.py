@@ -51,6 +51,25 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(index['日本动漫文化']['10'], 0)
         self.assertEqual(index['反对日本动漫文化']['10'], 2)
 
+    def test_legacy_encoder_forward_on_cpu(self):
+        try:
+            import torch
+        except ImportError:
+            self.skipTest('torch not installed on this machine')
+        from offline.qwen3_legacy import Qwen3LegacyEncoder
+        from types import SimpleNamespace
+        cfg = SimpleNamespace(
+            vocab_size=32, hidden_size=16, intermediate_size=32,
+            num_hidden_layers=1, num_attention_heads=2, num_key_value_heads=2,
+            head_dim=8, rms_norm_eps=1e-6, rope_theta=10000.0, attention_bias=False,
+        )
+        model = Qwen3LegacyEncoder(cfg).eval()
+        ids = torch.tensor([[1, 2, 3, 0]])
+        mask = torch.tensor([[1, 1, 1, 0]])
+        out = model(ids, mask).last_hidden_state
+        self.assertEqual(tuple(out.shape), (1, 4, 16))
+        self.assertTrue(torch.isfinite(out).all())
+
     def test_prompt_marks_current_utterance(self):
         text = build_utterance_prompt('Sora', ['先看演示。', '没什么用处。'], [0, 1], 1)
         self.assertIn('Instruct:', text)
