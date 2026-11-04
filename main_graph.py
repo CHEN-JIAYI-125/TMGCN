@@ -156,6 +156,8 @@ class GraphConfig:
     use_type_heads: bool = field(default=False)
     # Train-only: CE to flipped noun gold on negated paired claims
     opp_lambda: float = field(default=0.0)
+    # Graph = structure branch; original Qwen = semantic residual + concat
+    use_sem_struct_fusion: bool = field(default=False)
     # 通道开关：0 关 / 1 开（由 yaml 控制，不在 __init__.py 里选）
     use_speaker: int = field(default=1)
     use_dialogue: int = field(default=1)

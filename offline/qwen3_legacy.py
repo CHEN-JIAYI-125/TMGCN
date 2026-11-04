@@ -157,6 +157,7 @@ class Qwen3LegacyEncoder(nn.Module):
         device: str,
     ) -> "Qwen3LegacyEncoder":
         path = Path(model_dir)
+        print("legacy encoder: reading %s" % (path / "config.json"), flush=True)
         raw = json.loads((path / "config.json").read_text(encoding="utf-8"))
         head_dim = int(raw.get("head_dim") or int(raw["hidden_size"]) // int(raw["num_attention_heads"]))
         cfg = SimpleNamespace(
@@ -171,6 +172,11 @@ class Qwen3LegacyEncoder(nn.Module):
             rope_theta=float(raw.get("rope_theta", 1000000.0)),
             attention_bias=bool(raw.get("attention_bias", False)),
         )
+        print(
+            "legacy encoder: allocating %d layers x hidden=%d on CPU (8B, may take several minutes, not hung)"
+            % (cfg.num_hidden_layers, cfg.hidden_size),
+            flush=True,
+        )
         old_dtype = torch.get_default_dtype()
         if dtype in (torch.float16, torch.bfloat16):
             torch.set_default_dtype(dtype)
@@ -178,17 +184,21 @@ class Qwen3LegacyEncoder(nn.Module):
             model = cls(cfg)
         finally:
             torch.set_default_dtype(old_dtype)
+        print("legacy encoder: structure ready, reading safetensors", flush=True)
         state = _load_weight_dict(path, dtype=dtype)
+        print("legacy encoder: copying weights into modules", flush=True)
         missing, unexpected = model.load_state_dict(state, strict=False)
         needed_missing = [k for k in missing if not k.startswith("inv_freq")]
         if needed_missing:
             raise RuntimeError("Qwen3 legacy load missing weights: %s" % needed_missing[:12])
         print(
-            "legacy Qwen3 encoder: layers=%d hidden=%d unexpected=%d"
-            % (cfg.num_hidden_layers, cfg.hidden_size, len(unexpected)),
+            "legacy Qwen3 encoder: layers=%d hidden=%d unexpected=%d; moving to %s"
+            % (cfg.num_hidden_layers, cfg.hidden_size, len(unexpected), device),
             flush=True,
         )
-        return model.to(device=device, dtype=dtype)
+        model = model.to(device=device, dtype=dtype)
+        print("legacy encoder: on device, ready to encode", flush=True)
+        return model
 
 
 def _load_weight_dict(model_dir: Path, dtype: torch.dtype) -> Dict[str, torch.Tensor]:

@@ -384,6 +384,8 @@ class HeterogeneousStanceTracerV5(nn.Module):
         self.use_target_claim_mlp = bool(getattr(config, "use_target_claim_mlp", False))
         # Residual claim head: claim stance often opposes a related noun target.
         self.use_claim_noun_polarity = bool(getattr(config, "use_claim_noun_polarity", False))
+        # Structure from the graph; semantics from the frozen Qwen skip.
+        self.use_sem_struct_fusion = bool(getattr(config, "use_sem_struct_fusion", False))
         if self.use_target_claim_mlp and not self.use_grounding:
             raise ValueError("use_target_claim_mlp requires use_grounding=True and target priors")
         if self.use_grounding:
@@ -403,14 +405,38 @@ class HeterogeneousStanceTracerV5(nn.Module):
                 self.pair_gate = nn.Sequential(
                     nn.Linear(self.hidden_size * 2, self.hidden_size), nn.Sigmoid()
                 )
+            n_cat = 4 if self.use_sem_struct_fusion else 3
             self.classifier = nn.Sequential(
-                nn.Linear(self.hidden_size * 3, self.hidden_size),
+                nn.Linear(self.hidden_size * n_cat, self.hidden_size),
                 nn.GELU(),
                 nn.Linear(self.hidden_size, self.num_classes),
             )
         else:
             self.grounding = None
-            self.classifier = nn.Linear(self.hidden_size, self.num_classes)
+            if self.use_sem_struct_fusion:
+                self.classifier = nn.Sequential(
+                    nn.Linear(self.hidden_size * 2, self.hidden_size),
+                    nn.GELU(),
+                    nn.Linear(self.hidden_size, self.num_classes),
+                )
+            else:
+                self.classifier = nn.Linear(self.hidden_size, self.num_classes)
+        if self.use_sem_struct_fusion:
+            # Zero-init residual so step 0 == graph-only hidden.
+            self.sem_res = nn.Sequential(
+                nn.Linear(self.hidden_size, self.hidden_size),
+                nn.GELU(),
+                nn.Dropout(self.dropout),
+                nn.Linear(self.hidden_size, self.hidden_size),
+            )
+            nn.init.zeros_(self.sem_res[-1].weight)
+            nn.init.zeros_(self.sem_res[-1].bias)
+            self.sem_gate = nn.Sequential(
+                nn.Linear(self.hidden_size * 2, self.hidden_size),
+                nn.Sigmoid(),
+            )
+            nn.init.zeros_(self.sem_gate[0].weight)
+            nn.init.constant_(self.sem_gate[0].bias, -4.0)
 
         if self.use_claim_noun_polarity:
             # [h, t_claim, t_noun, sim, negated] -> 3-class residual, zero-init
@@ -588,40 +614,28 @@ class HeterogeneousStanceTracerV5(nn.Module):
             loss = loss + self.opp_lambda * self.criterion(logits, opp_y)
         return loss
 
-    def forward(
+    def _apply_semantic_residual(self, h: torch.Tensor, x_sem: torch.Tensor) -> torch.Tensor:
+        """Add gated original-Qwen residual onto the graph (structure) hidden."""
+        if not self.use_sem_struct_fusion:
+            return h
+        gate = self.sem_gate(torch.cat([h, x_sem], dim=-1))
+        return h + gate * self.sem_res(x_sem)
+
+    def _decode_stance(
         self,
-        x: torch.Tensor,
-        y: Optional[torch.Tensor] = None,
-        speaker_hyperedge_index: Optional[torch.Tensor] = None,
-        dialogue_hyperedge_index: Optional[torch.Tensor] = None,
-        temporal_edge_index: Optional[torch.Tensor] = None,
-        reply_candidate_edge_index: Optional[torch.Tensor] = None,
-        return_dict: bool = True,
-        **kwargs,  # dialogue_ids / utterance_ids / doc_final_* / graph_ptr ... metadata
-    ) -> Dict[str, Any]:
-        device = x.device
-        x = self.input_proj(x)
-        if self.input_dropout > 0:
-            x = F.dropout(x, p=self.input_dropout, training=self.training)
+        h: torch.Tensor,
+        x_sem: torch.Tensor,
+        kwargs: Dict[str, Any],
+    ):
+        """Grounding + structure/semantic fusion + classifier.
 
-        if speaker_hyperedge_index is None:
-            speaker_hyperedge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
-        if dialogue_hyperedge_index is None:
-            dialogue_hyperedge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
-        if temporal_edge_index is None:
-            temporal_edge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
-        if reply_candidate_edge_index is None:
-            reply_candidate_edge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
-
-        h, m_spk, m_dlg, m_temp, m_reply, fusion_gate = self._encode(
-            x,
-            speaker_hyperedge_index,
-            dialogue_hyperedge_index,
-            temporal_edge_index,
-            reply_candidate_edge_index,
-        )
-
+        h is the graph branch (structure). x_sem is the projected original Qwen
+        vector (semantics). Residual is applied on h; x_sem is concatenated
+        for the classifier so both branches remain visible.
+        """
+        h = self._apply_semantic_residual(h, x_sem)
         h_tar = alpha = None
+        device = h.device
         target_knowledge = kwargs.get("target_knowledge", None)
         graph_ptr = kwargs.get("graph_ptr", None)
         if self.use_grounding:
@@ -638,11 +652,9 @@ class HeterogeneousStanceTracerV5(nn.Module):
                     "datasets with the same config "
                     "(run build_target_embeddings.py --stage targets first)"
                 )
-            # row 0 of the prior is the raw target text t_i (un-grounded
-            # target representation); rows 1..3 are the stance views K.
             target_knowledge = self.input_proj(target_knowledge)
-            t_repr = target_knowledge[:, 0, :]  # [G, D]
-            k_views = target_knowledge[:, 1:, :]  # [G, V, D]
+            t_repr = target_knowledge[:, 0, :]
+            k_views = target_knowledge[:, 1:, :]
             h_tar, alpha = self.grounding(h, k_views, graph_ptr)
             g_idx = torch.repeat_interleave(
                 torch.arange(target_knowledge.size(0), device=device),
@@ -650,20 +662,19 @@ class HeterogeneousStanceTracerV5(nn.Module):
             )
             t_nodes = t_repr[g_idx]
             if self.use_target_claim_mlp:
-                # All features are target-conditioned. A negative similarity alone
-                # is NOT treated as an Against label: the head learns from gold labels.
                 similarity = F.cosine_similarity(h, t_nodes, dim=-1).unsqueeze(-1)
                 pair_features = torch.cat(
                     [h, h_tar, t_nodes, h - t_nodes, h * t_nodes, similarity], dim=-1
                 )
                 pair_repr = self.pair_mlp(pair_features)
                 gate = self.pair_gate(torch.cat([h, pair_repr], dim=-1))
-                # Residual leaves existing graph context directly accessible.
-                feat = torch.cat([h + gate * pair_repr, h_tar, t_nodes], dim=-1)
-                logits = self._predict_logits(feat, kwargs.get("target_type_ids"))
+                feat_h = h + gate * pair_repr
             else:
-                feat = torch.cat([h, h_tar, t_nodes], dim=-1)
-                logits = self._predict_logits(feat, kwargs.get("target_type_ids"))
+                feat_h = h
+            parts = [feat_h, h_tar, t_nodes]
+            if self.use_sem_struct_fusion:
+                parts.append(x_sem)
+            logits = self._predict_logits(torch.cat(parts, dim=-1), kwargs.get("target_type_ids"))
             if self.use_claim_noun_polarity:
                 type_ids = kwargs.get("target_type_ids", None)
                 noun_know = kwargs.get("related_noun_knowledge", None)
@@ -687,7 +698,44 @@ class HeterogeneousStanceTracerV5(nn.Module):
                     claim_mask = (type_ids.view(-1).to(device) == 1).unsqueeze(-1).to(adj.dtype)
                     logits = logits + claim_mask * adj
         else:
-            logits = self._predict_logits(h, kwargs.get("target_type_ids"))  # [N_total_nodes, num_classes]
+            feat = torch.cat([h, x_sem], dim=-1) if self.use_sem_struct_fusion else h
+            logits = self._predict_logits(feat, kwargs.get("target_type_ids"))
+        return logits, h, h_tar, alpha
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: Optional[torch.Tensor] = None,
+        speaker_hyperedge_index: Optional[torch.Tensor] = None,
+        dialogue_hyperedge_index: Optional[torch.Tensor] = None,
+        temporal_edge_index: Optional[torch.Tensor] = None,
+        reply_candidate_edge_index: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        **kwargs,  # dialogue_ids / utterance_ids / doc_final_* / graph_ptr ... metadata
+    ) -> Dict[str, Any]:
+        device = x.device
+        x = self.input_proj(x)
+        x_sem = x
+        if self.input_dropout > 0:
+            x = F.dropout(x, p=self.input_dropout, training=self.training)
+
+        if speaker_hyperedge_index is None:
+            speaker_hyperedge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+        if dialogue_hyperedge_index is None:
+            dialogue_hyperedge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+        if temporal_edge_index is None:
+            temporal_edge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+        if reply_candidate_edge_index is None:
+            reply_candidate_edge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+
+        h, m_spk, m_dlg, m_temp, m_reply, fusion_gate = self._encode(
+            x,
+            speaker_hyperedge_index,
+            dialogue_hyperedge_index,
+            temporal_edge_index,
+            reply_candidate_edge_index,
+        )
+        logits, h, h_tar, alpha = self._decode_stance(h, x_sem, kwargs)
 
         loss = None
         if y is not None:

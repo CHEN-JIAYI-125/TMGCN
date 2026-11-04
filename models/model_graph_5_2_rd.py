@@ -254,6 +254,7 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
         # Student 必须看 dropout 之前的冻结句向量，图结构才稳定，
         # 也避免 Reply RGCN 的输入与 Student 输入互相依赖。
         student_in = x
+        x_sem = x
         if self.input_dropout > 0:
             x = F.dropout(x, p=self.input_dropout, training=self.training)
 
@@ -313,38 +314,7 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
             reply_edge_weight=reply_edge_weight,
         )
 
-        # ---- Target Grounding + 分类头：与父类完全相同 ----
-        h_tar = alpha = None
-        target_knowledge = kwargs.get("target_knowledge", None)
-        graph_ptr = kwargs.get("graph_ptr", None)
-        if self.use_grounding:
-            if (
-                target_knowledge is None
-                or target_knowledge.dim() != 3
-                or target_knowledge.size(0) == 0
-                or graph_ptr is None
-                or graph_ptr.numel() != target_knowledge.size(0) + 1
-            ):
-                raise RuntimeError(
-                    "use_grounding=True but the batch lacks a valid "
-                    "target_knowledge prior (or graph_ptr mismatch); build the "
-                    "datasets with the same config "
-                    "(run build_target_embeddings.py --stage targets first)"
-                )
-            target_knowledge = self.input_proj(target_knowledge)
-            t_repr = target_knowledge[:, 0, :]
-            k_views = target_knowledge[:, 1:, :]
-            h_tar, alpha = self.grounding(h, k_views, graph_ptr)
-            g_idx = torch.repeat_interleave(
-                torch.arange(target_knowledge.size(0), device=device),
-                (graph_ptr[1:] - graph_ptr[:-1]).clamp_min(0),
-            )
-            logits = self._predict_logits(
-                torch.cat([h, h_tar, t_repr[g_idx]], dim=-1),
-                kwargs.get("target_type_ids"),
-            )
-        else:
-            logits = self._predict_logits(h, kwargs.get("target_type_ids"))
+        logits, h, h_tar, alpha = self._decode_stance(h, x_sem, kwargs)
 
         loss_stance = None
         if y is not None:
