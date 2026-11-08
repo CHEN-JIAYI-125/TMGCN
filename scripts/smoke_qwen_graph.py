@@ -9,8 +9,7 @@ def main():
     for distilled in (False, True):
         cfg = SimpleNamespace(input_size=16, hidden_size=8, num_layers=1,
                               use_grounding=True, hypergraph_attention=False,
-                              reply_distillation=distilled, use_reply_kd=False,
-                              use_soft_reply_graph=False, cl_lambda=0.0)
+                              reply_distillation=distilled, cl_lambda=0.0)
         model = HeterogeneousStanceTracerV5RD(cfg) if distilled else HeterogeneousStanceTracerV5(cfg)
         batch = dict(x=torch.randn(3, 16), y=torch.tensor([0, 1, 2]),
                      target_knowledge=torch.randn(1, 4, 16), graph_ptr=torch.tensor([0, 3]))

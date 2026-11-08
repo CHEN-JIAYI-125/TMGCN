@@ -193,74 +193,20 @@ class GraphConfig:
     # setting). Full per-utterance predictions are still written to CSV.
     metric_on_last_sentence: bool = field(default=True)
 
-    # Reply Distillation 方法开关：0 关 / 1 开（需先在 models/datasets 的 __init__.py 换成 rd）
+    # Student 软回复图：0 关 / 1 开（需 models/__init__.py 用 rd 模型）
     reply_distillation: int = field(default=0)
     use_reply_distillation: int = field(default=0)
-    teacher_path: str = field(default="data/reply_teacher/")
-    reply_kd_lambda: float = field(default=0.5)
     reply_threshold: float = field(default=0.05)
-    use_reply_kd: int = field(default=0)
-    use_soft_reply_graph: int = field(default=0)
-    reply_graph_source: str = field(default="student")
-    reply_ablation: str = field(default="")
-
-    # Stance KD: frozen Qwen Instruct Teacher probs -> TMGCN logits.
-    # L = L_CE + stance_kd_lambda * T^2 * KL(p_T || p_S). Off by default.
-    use_stance_kd: int = field(default=0)
-    stance_teacher_path: str = field(default="data/stance_teacher/")
-    stance_kd_lambda: float = field(default=0.5)
-    stance_kd_temperature: float = field(default=3.0)
-    stance_kd_scope: str = field(default="last_sentence")
 
     def to_json_string(self, *args, **kwargs):
         return json.dumps(asdict(self), indent=2, sort_keys=True, ensure_ascii=False)
-
-
-def _reply_on(cfg: GraphConfig) -> bool:
-    return bool(cfg.reply_distillation or cfg.use_reply_distillation)
-
-
-def apply_reply_ablation(cfg: GraphConfig) -> GraphConfig:
-    """reply_ablation=A..E 只改 0/1 方法开关，不切换 __init__.py 里的模型文件。"""
-    mode = str(cfg.reply_ablation or "").strip().upper()
-    if not mode:
-        return cfg
-    mapping = {
-        "A": dict(distill=0, kd=0, soft=0, src="candidate"),
-        "B": dict(distill=1, kd=0, soft=1, src="student"),
-        "C": dict(distill=1, kd=1, soft=0, src="candidate"),
-        "D": dict(distill=1, kd=0, soft=1, src="teacher"),
-        "E": dict(distill=1, kd=1, soft=1, src="student"),
-    }
-    if mode not in mapping:
-        raise ValueError("reply_ablation 必须是 A/B/C/D/E 或空，收到 %r" % cfg.reply_ablation)
-    spec = mapping[mode]
-    cfg.reply_distillation = spec["distill"]
-    cfg.use_reply_distillation = spec["distill"]
-    cfg.use_reply_kd = spec["kd"]
-    cfg.use_soft_reply_graph = spec["soft"]
-    cfg.reply_graph_source = spec["src"]
-    logger.info(
-        "reply_ablation=%s -> distillation=%d kd=%d soft_graph=%d source=%s",
-        mode, spec["distill"], spec["kd"], spec["soft"], spec["src"],
-    )
-    return cfg
 
 
 def load_config(config_path: str) -> GraphConfig:
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = safe_load(f) or {}
     known = {name for name in GraphConfig.__dataclass_fields__}
-    obj = GraphConfig(**{k: v for k, v in cfg.items() if k in known})
-    return apply_reply_ablation(obj)
-
-
-def get_collate_fn(cfg: GraphConfig):
-    if cfg.use_stance_kd:
-        from datasets.dataset_graph_4_stance_kd import stance_kd_collate_fn
-
-        return stance_kd_collate_fn
-    return target_graph_collate_fn
+    return GraphConfig(**{k: v for k, v in cfg.items() if k in known})
 
 
 def build_model(cfg: GraphConfig):
@@ -289,9 +235,6 @@ def build_dataset(cfg: GraphConfig, split_path: str) -> Any:
     sig = inspect.signature(TargetGraphDataset.__init__)
     if "target_knowledge_npy" in sig.parameters:
         kwargs["target_knowledge_npy"] = knowledge_npy or None
-    if "teacher_path" in sig.parameters:
-        kwargs["teacher_path"] = cfg.teacher_path
-        kwargs["reply_distillation"] = _reply_on(cfg)
     ds = TargetGraphDataset(**kwargs)
     if cfg.debug:
         keep = min(len(ds), 40)
@@ -300,19 +243,7 @@ def build_dataset(cfg: GraphConfig, split_path: str) -> Any:
         if hasattr(ds, "target_types"):
             ds.target_types = ds.target_types[:keep]
         ds.graphs = ds.graphs[:keep]
-        if hasattr(ds, "reply_teacher_dist"):
-            ds.reply_teacher_dist = ds.reply_teacher_dist[:keep]
-            ds.reply_teacher_mask = ds.reply_teacher_mask[:keep]
         logger.info("[debug] trimmed dataset to %d target graphs", keep)
-    if cfg.use_stance_kd:
-        from datasets.dataset_graph_4_stance_kd import wrap_with_stance_teacher
-
-        ds = wrap_with_stance_teacher(
-            ds,
-            teacher_path=cfg.stance_teacher_path,
-            scope=cfg.stance_kd_scope,
-            num_classes=cfg.num_classes,
-        )
     return ds
 
 
@@ -506,7 +437,7 @@ def predict_and_evaluate(
     with torch.no_grad():
         for idx in _iter_with_progress(range(len(dataset)), total=len(dataset), desc=""):
             item = dataset[idx]
-            batch = _to_device(get_collate_fn(cfg)([item]), device)
+            batch = _to_device(target_graph_collate_fn([item]), device)
             output = model(**batch)
             loss = output.get("loss")
             if loss is not None and torch.is_tensor(loss) and torch.isfinite(loss):
@@ -655,7 +586,7 @@ def main():
         train_dataset,
         batch_size=cfg.batchsize,
         shuffle=True,
-        collate_fn=get_collate_fn(cfg),
+        collate_fn=target_graph_collate_fn,
         drop_last=False,
     )
     steps_per_epoch = max(1, len(train_loader) // cfg.gradient_accumulation_steps)
@@ -671,44 +602,21 @@ def main():
     tr_loss = 0.0
     tr_steps = 0
 
-    if cfg.use_stance_kd:
-        from modules.stance_distillation import stance_kd_loss
-
-        logger.info(
-            "stance kd on | lambda=%.4f T=%.2f scope=%s path=%s",
-            cfg.stance_kd_lambda,
-            cfg.stance_kd_temperature,
-            cfg.stance_kd_scope,
-            cfg.stance_teacher_path,
-        )
-
     for epoch in range(1, cfg.epoch_size + 1):
         model.train()
         epoch_loss = 0.0
-        epoch_kd = 0.0
         optimizer.zero_grad()
         train_iter = _iter_with_progress(train_loader, total=len(train_loader), desc="")
         for step, batch in enumerate(train_iter, start=1):
             batch = _to_device(batch, device)
             output = model(**batch)
             loss = output["loss"]
-            kd_term = None
-            if cfg.use_stance_kd:
-                kd_term = stance_kd_loss(
-                    output["logits"],
-                    batch.get("stance_teacher_probs"),
-                    batch.get("stance_teacher_mask"),
-                    temperature=cfg.stance_kd_temperature,
-                )
-                loss = loss + cfg.stance_kd_lambda * kd_term
             if not torch.isfinite(loss):
                 logger.warning("[train] non-finite loss=%s at step %d; skipping step", float(loss), global_step)
                 continue
             loss = loss / cfg.gradient_accumulation_steps
             loss.backward()
             epoch_loss += float(loss.detach().cpu())
-            if kd_term is not None:
-                epoch_kd += float(kd_term.detach().cpu())
             tr_loss += float(loss.detach().cpu())
             tr_steps += 1
 
@@ -734,21 +642,8 @@ def main():
                     tr_steps = 0
 
         avg_epoch_loss = epoch_loss / max(1, len(train_loader))
-        avg_epoch_kd = epoch_kd / max(1, len(train_loader))
-        if cfg.use_stance_kd:
-            print(
-                f"Epoch {epoch} Train | Loss: {avg_epoch_loss:.2f} | KD: {avg_epoch_kd:.4f}",
-                flush=True,
-            )
-            logger.info(
-                "epoch %d finished | avg_loss=%.6f | avg_kd=%.6f",
-                epoch,
-                avg_epoch_loss,
-                avg_epoch_kd,
-            )
-        else:
-            print(f"Epoch {epoch} Train | Loss: {avg_epoch_loss:.2f}", flush=True)
-            logger.info("epoch %d finished | avg_loss=%.6f", epoch, avg_epoch_loss)
+        print(f"Epoch {epoch} Train | Loss: {avg_epoch_loss:.2f}", flush=True)
+        logger.info("epoch %d finished | avg_loss=%.6f", epoch, avg_epoch_loss)
 
         dev_metrics = predict_and_evaluate(
             model, dev_dataset, cfg, device, prefix="dev",

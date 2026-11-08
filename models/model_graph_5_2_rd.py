@@ -1,22 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""HeterogeneousStanceTracerV5 + Reply Structure Knowledge Distillation。
+"""HeterogeneousStanceTracerV5 + Student 软回复图。
 
 本文件 **继承** ``models.model_graph_5_2.HeterogeneousStanceTracerV5``，不删除
 也不改写 Speaker / Dialogue 超图、Temporal RGCN、Gated Fusion、Target
-Grounding、Contrastive Learning。Reply Distillation 只替换回复通道：
+Grounding、Contrastive Learning。只替换回复通道：
 
     冻结句向量 x
         → Student ReplyPredictor → P_S(j|t)
-        → （可选）与 LLM Teacher P_T 做 KL 蒸馏
         → 阈值化得到 soft_reply_edge_index / edge_weight
         → Reply RGCN(node, edge_index, edge_weight)
         → 与其它三路一起 gated fusion
 
-开关 ``reply_distillation=False``（默认）时：
+没有 LLM Teacher，也没有 KL。开关 ``reply_distillation=False``（默认）时：
     - 不创建 Student 参数；
-    - ``forward`` 直接调用父类，回复边仍是等权 candidate 图；
-    - 数值行为与原 TMGCN baseline 完全等价。
+    - ``forward`` 直接调用父类，回复边仍是等权 candidate 图。
 """
 
 from __future__ import annotations
@@ -34,10 +32,8 @@ from models.model_graph_5_2 import (
     _supcon_loss,
 )
 from modules.reply_distillation import (
-    ReplyKDLoss,
     ReplyPredictor,
     build_soft_reply_graph,
-    merge_teacher_fallback_edges,
 )
 
 
@@ -100,29 +96,13 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
             getattr(config, "reply_distillation", False)
             or getattr(config, "use_reply_distillation", False)
         )
-        self.use_reply_kd = bool(getattr(config, "use_reply_kd", True))
-        self.use_soft_reply_graph = bool(getattr(config, "use_soft_reply_graph", True))
-        self.reply_graph_source = str(getattr(config, "reply_graph_source", "student")).lower()
-        if self.reply_graph_source not in ("student", "teacher", "candidate"):
-            self.reply_graph_source = "student"
-        self.reply_kd_lambda = float(getattr(config, "reply_kd_lambda", 0.5))
         self.reply_threshold = float(getattr(config, "reply_threshold", 0.05))
-        # 沿用原 GraphConfig.reply_temperature；蒸馏默认建议 3
-        self.reply_kd_temperature = float(getattr(config, "reply_temperature", 3.0))
-
         self.reply_predictor: Optional[ReplyPredictor] = None
-        self.reply_kd_criterion: Optional[ReplyKDLoss] = None
-        need_student = self.reply_distillation and (
-            self.use_reply_kd
-            or (self.use_soft_reply_graph and self.reply_graph_source == "student")
-        )
-        if need_student:
+        if self.reply_distillation:
             self.reply_predictor = ReplyPredictor(
                 hidden_size=self.hidden_size,
                 dropout=self.dropout,
             )
-        if self.reply_distillation and self.use_reply_kd:
-            self.reply_kd_criterion = ReplyKDLoss(temperature=self.reply_kd_temperature)
 
     # ------------------------------------------------------------------
     # Reply RGCN：在父类基础上增加 edge_weight
@@ -205,19 +185,11 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
         self,
         probs: torch.Tensor,
         valid_hist: Optional[torch.Tensor],
-        candidate_edge_index: torch.Tensor,
-        teacher_row_valid: Optional[torch.Tensor] = None,
-        fallback_empty: bool = False,
     ):
-        """阈值化概率分布，得到 Reply RGCN 的边与边权。"""
-        edge_index, edge_weight = build_soft_reply_graph(
+        """阈值化 Student 概率，得到 Reply RGCN 的边与边权。"""
+        return build_soft_reply_graph(
             probs, threshold=self.reply_threshold, valid_hist=valid_hist
         )
-        if fallback_empty and teacher_row_valid is not None:
-            edge_index, edge_weight = merge_teacher_fallback_edges(
-                edge_index, edge_weight, candidate_edge_index, teacher_row_valid
-            )
-        return edge_index, edge_weight
 
     def forward(
         self,
@@ -243,7 +215,6 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
                 **kwargs,
             )
             output["stance_loss"] = output.get("loss")
-            output["reply_kd_loss"] = None
             output["total_loss"] = output.get("loss")
             if not return_dict:
                 return output["logits"]
@@ -267,43 +238,16 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
         if reply_candidate_edge_index is None:
             reply_candidate_edge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
 
-        teacher_probs = kwargs.get("reply_teacher_distribution", None)
-        teacher_mask = kwargs.get("reply_teacher_mask", None)
-
         reply_edge_index = reply_candidate_edge_index
         reply_edge_weight = None
-        p_s = student_logits = valid_hist = None
-        loss_reply_kd = None
-
+        p_s = valid_hist = None
         if self.reply_predictor is not None:
-            p_s, student_logits, valid_hist = self.reply_predictor(
+            p_s, _, valid_hist = self.reply_predictor(
                 student_in, candidate_edge_index=reply_candidate_edge_index
             )
-
-        # ---- 构造 Reply 通道使用的图 ----
-        if self.use_soft_reply_graph and self.reply_graph_source == "student" and p_s is not None:
             reply_edge_index, reply_edge_weight = self._build_reply_graph_from_probs(
-                p_s, valid_hist, reply_candidate_edge_index
+                p_s, valid_hist
             )
-        elif self.use_soft_reply_graph and self.reply_graph_source == "teacher":
-            if teacher_probs is not None and teacher_mask is not None:
-                # 只在 Teacher support 上保留概率，其它位置视为 0
-                p_t_graph = teacher_probs.to(device=device, dtype=student_in.dtype)
-                t_mask = teacher_mask.to(device=device, dtype=torch.bool)
-                p_t_graph = p_t_graph * t_mask.to(p_t_graph.dtype)
-                row_z = p_t_graph.sum(dim=-1, keepdim=True).clamp_min(1e-8)
-                p_t_graph = p_t_graph / row_z
-                hist_valid = t_mask[:, 1:]
-                row_valid = t_mask.any(dim=-1)
-                reply_edge_index, reply_edge_weight = self._build_reply_graph_from_probs(
-                    p_t_graph,
-                    hist_valid,
-                    reply_candidate_edge_index,
-                    teacher_row_valid=row_valid,
-                    fallback_empty=True,
-                )
-            # teacher 文件完全缺失时保持原 candidate 图（等权）
-        # source == "candidate" 或 use_soft_reply_graph=False：沿用原图，不传 weight
 
         h, m_spk, m_dlg, m_temp, m_reply, fusion_gate = self._encode(
             x,
@@ -363,26 +307,9 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
                 )
             loss = loss + self.cl_lambda * loss_cl
 
-        # ---- Reply KD：只在有 Teacher 的节点上计算 ----
-        if (
-            self.training
-            and self.use_reply_kd
-            and self.reply_kd_criterion is not None
-            and student_logits is not None
-            and teacher_probs is not None
-            and teacher_mask is not None
-        ):
-            loss_reply_kd = self.reply_kd_criterion(
-                student_logits,
-                teacher_probs.to(device=device, dtype=student_logits.dtype),
-                teacher_mask.to(device=device),
-            )
-            loss = loss + self.reply_kd_lambda * loss_reply_kd
-
         output = {
             "loss": loss,
             "stance_loss": loss_stance.detach() if loss_stance is not None else None,
-            "reply_kd_loss": loss_reply_kd.detach() if loss_reply_kd is not None else None,
             "total_loss": loss.detach() if loss is not None else None,
             "loss_contrastive": loss_cl.detach() if loss_cl is not None else None,
             "logits": logits,

@@ -1,25 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Reply Structure Knowledge Distillation 核心模块。
+"""Student 软回复图：用句向量预测回复边权，替换等权 candidate 图。
 
-本文件只负责「回复结构」这一条通道，不改动 Speaker / Dialogue / Temporal
-超图与对比学习。三个组件对应论文式流水线：
+不改动 Speaker / Dialogue / Temporal。没有 LLM Teacher，也没有 KL。
 
-1. ``ReplyPredictor``（Student）
-   输入冻结句向量 ``h_i``，对每个当前话语 ``u_t`` 预测它回复历史话语
-   ``u_j (j < t)`` 以及特殊选项 ROOT 的概率 ``P_S(j|t)``。
-   输出形状 ``[N, N+1]``：第 0 列是 ROOT，第 ``j+1`` 列是节点 ``j``。
-
-2. ``ReplyKDLoss``
-   用温度 ``T`` 的 KL 散度把 Student 分布拉向 LLM Teacher 分布：
-   ``L_reply_KD = T^2 * KL(P_T || P_S)``。
-
-3. ``build_soft_reply_graph``
-   将 ``P_S``（或 ``P_T``）阈值化成带权回复边，替换原来的
-   ``reply_candidate_edge_index``（全历史、等权）供 Reply RGCN 使用。
-
-关闭 ``reply_distillation`` 时本模块不会被实例化，主模型前向与 baseline
-完全一致。
+1. ``ReplyPredictor`` 对每个 ``u_t`` 预测 ``P_S(j|t)``，形状 ``[N, N+1]``
+   （第 0 列 ROOT，第 ``j+1`` 列节点 ``j``）。
+2. ``build_soft_reply_graph`` 把 ``P_S`` 阈值化成带权边，供 Reply RGCN 使用。
 """
 
 from __future__ import annotations
@@ -28,7 +15,6 @@ from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 def apply_causal_reply_mask(
@@ -185,35 +171,6 @@ def build_soft_reply_graph(
     return edge_index, edge_weight
 
 
-def merge_teacher_fallback_edges(
-    teacher_index: torch.Tensor,
-    teacher_weight: torch.Tensor,
-    candidate_index: torch.Tensor,
-    teacher_row_valid: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Ablation D：Teacher 当图。没有 teacher 的目标节点回退到等权候选边。
-
-    ``teacher_row_valid[t]=True`` 表示节点 t 至少有一条 teacher 监督；
-    对这些节点只用 teacher 边。其余节点把原 ``reply_candidate`` 边以权 1 补上，
-    避免测试集缺 teacher 文件时回复通道塌成空图。
-    """
-    device = candidate_index.device if candidate_index.numel() else teacher_index.device
-    if candidate_index.numel() == 0:
-        return teacher_index, teacher_weight
-    src, dst = candidate_index[0], candidate_index[1]
-    need = ~teacher_row_valid[dst]
-    if not bool(need.any()):
-        return teacher_index, teacher_weight
-    fb_index = torch.stack([src[need], dst[need]], dim=0)
-    fb_weight = torch.ones(int(need.sum().item()), dtype=teacher_weight.dtype, device=device)
-    if teacher_index.numel() == 0:
-        return fb_index, fb_weight
-    return (
-        torch.cat([teacher_index, fb_index], dim=1),
-        torch.cat([teacher_weight, fb_weight], dim=0),
-    )
-
-
 class ReplyPredictor(nn.Module):
     """Student Reply Predictor：从句向量预测 soft 回复关系。
 
@@ -263,8 +220,8 @@ class ReplyPredictor(nn.Module):
         ----------
         h:
             ``[N, D]`` 话语表示。训练时用冻结句向量（input_proj 之后、
-            dropout 之前），与 Teacher 一样只看内容、不看 GNN 后的状态，
-            避免和 Reply RGCN 循环依赖。
+            dropout 之前），只看内容、不看 GNN 后的状态，避免和 Reply RGCN
+            循环依赖。
         candidate_edge_index:
             ``[2, E]``，``j -> t`` 的回复候选。None 则只保留严格下三角
             （``j < t``），用于节点已按时间排序的图。
@@ -276,7 +233,7 @@ class ReplyPredictor(nn.Module):
         probs : [N, N+1]
             ``P_S(j|t)``，每行和为 1。
         logits : [N, N+1]
-            掩码后的打分（非法位置为 -inf），供 KD 做温度 softmax。
+            掩码后的打分（非法位置为 -inf）。
         valid_hist : [N, N]
             历史节点合法掩码，建 Soft Graph 时复用。
         """
@@ -321,60 +278,3 @@ class ReplyPredictor(nn.Module):
 
         probs = masked_softmax(logits, dim=-1)
         return probs, logits, valid_hist
-
-
-class ReplyKDLoss(nn.Module):
-    """LLM Teacher → Student 的回复结构蒸馏损失。
-
-    Teacher 给出 soft 分布 ``P_T``（含 ROOT），Student 给出 ``P_S``。
-
-        L_reply_KD = T^2 * KL(P_T || P_S)
-
-    实现细节：
-    - 只在 Teacher 标注过的行、以及 Teacher 的 support（ROOT + 该话语的
-      历史）上计算，Student 先在同一 support 上重新 softmax，保证两边
-      是同一单纯形上的分布。
-    - 温度 ``T`` 作用在 Student logits 上；Teacher 已是 soft 分数，再做
-      ``p^{1/T}`` 平滑后归一化（Hinton KD 的标准做法）。
-    - ``reduction='batchmean'``：对有效话语条数求平均。
-    """
-
-    def __init__(self, temperature: float = 3.0):
-        super().__init__()
-        self.temperature = float(temperature)
-
-    def forward(
-        self,
-        student_logits: torch.Tensor,
-        teacher_probs: torch.Tensor,
-        teacher_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        student_logits : [N, N+1]  掩码后的 Student 打分
-        teacher_probs  : [N, N+1]  Teacher 概率（未标位置可为 0）
-        teacher_mask   : [N, N+1]  True=该位置属于 Teacher support
-        """
-        if student_logits.numel() == 0:
-            return student_logits.new_zeros(())
-        mask = teacher_mask.to(dtype=torch.bool, device=student_logits.device)
-        valid_rows = mask.any(dim=-1)
-        if not bool(valid_rows.any()):
-            return student_logits.new_zeros(())
-
-        tau = max(self.temperature, 1e-6)
-        s_logits = student_logits[valid_rows] / tau
-        row_mask = mask[valid_rows]
-        # Student 只在 Teacher 给过的选项上归一化
-        s_logits = s_logits.masked_fill(~row_mask, float("-inf"))
-        log_p_s = F.log_softmax(s_logits, dim=-1)
-
-        p_t = teacher_probs[valid_rows].clamp_min(0.0) * row_mask.to(student_logits.dtype)
-        # 温度平滑 Teacher：p^{1/T} / Z
-        p_t = p_t.clamp_min(1e-8).pow(1.0 / tau)
-        p_t = p_t * row_mask.to(p_t.dtype)
-        z = p_t.sum(dim=-1, keepdim=True).clamp_min(1e-8)
-        p_t = p_t / z
-
-        # F.kl_div(log_student, teacher) = KL(teacher || student)
-        kl = F.kl_div(log_p_s, p_t, reduction="batchmean")
-        return (tau ** 2) * kl
