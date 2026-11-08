@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------
-# 8144bee 基线去掉回复蒸馏，只加 claim–noun 极性残差。
+# 8144bee 基线，只加 claim–noun 极性残差（当前默认关）。
 # 四通道 / Grounding / RoBERTa / CL 与当时一致。
 # python main_graph.py config/config_model5_claim.yaml
 # ------------------------------------------------------------------
@@ -36,12 +36,6 @@ cl_proj_dim: 128
 bidirectional_temporal: false
 max_nodes_per_target: 0
 
-reply_distillation: 0
-use_reply_distillation: 0
-use_reply_kd: 0
-use_soft_reply_graph: 0
-reply_ablation: ""
-use_stance_kd: 0
 use_target_claim_mlp: false
 use_claim_noun_polarity: false
 

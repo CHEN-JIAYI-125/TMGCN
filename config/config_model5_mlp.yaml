@@ -44,13 +44,6 @@ cl_feat_mask_rate: 0.2
 cl_noise_scale: 0.1
 cl_proj_dim: 128
 
-reply_distillation: 0
-use_reply_distillation: 0
-use_reply_kd: 0
-use_soft_reply_graph: 0
-reply_ablation: ""
-use_stance_kd: 0
-
 epoch_size: 20
 batchsize: 16
 patience: 0

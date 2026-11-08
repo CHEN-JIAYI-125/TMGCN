@@ -10,7 +10,7 @@ encoder change; contextual prefix embeddings are a separate future ablation.
 Sentence features and the existing four target views use the same Qwen encoder,
 last-token pooling, L2 normalization and shared trainable projection to the graph
 hidden width. Original 768-dimensional configs retain an identity projection.
-The baseline and reply-distillation model paths both support projection.
+The graph model path supports a trainable projection from Qwen width to hidden size.
 
 Reference: https://huggingface.co/Qwen/Qwen3-Embedding-8B
 

@@ -1,8 +1,10 @@
 # ------------------------------------------------------------------
-# 图分支学结构 + 原始 Qwen 语义残差/拼接。
-# embedding 已编好，不要重跑 build_qwen_graph。
-#
-# python3.9 main_graph.py config/config_model5_rd_sem.yaml
+# claim/noun 分头 + 翻转 noun 金标辅助 CE + 会话立场 Qwen embedding。
+# 先生成 cache，再训练：
+#   python3.9 offline/build_qwen_graph.py --config config/config_model5_type.yaml \
+#     --model /home/chenjiayi/models/Qwen3-Embedding-8B \
+#     --output /mnt/data/chenjiayi/csd/qwen_stance --device cuda:0 --overwrite
+#   python3.9 main_graph.py config/config_model5_type.yaml
 # ------------------------------------------------------------------
 
 train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
@@ -37,27 +39,10 @@ cl_proj_dim: 128
 bidirectional_temporal: false
 max_nodes_per_target: 0
 
-reply_distillation: 1
-use_reply_distillation: 1
-teacher_path: data/reply_teacher/
-reply_temperature: 3
-reply_kd_lambda: 0.5
-reply_threshold: 0.05
-use_reply_kd: 1
-use_soft_reply_graph: 1
-reply_graph_source: student
-reply_ablation: "E"
 use_claim_noun_polarity: false
 use_target_claim_mlp: false
 use_type_heads: true
 opp_lambda: 0.3
-use_sem_struct_fusion: true
-
-use_stance_kd: 0
-stance_teacher_path: data/stance_teacher/
-stance_kd_lambda: 0.5
-stance_kd_temperature: 3.0
-stance_kd_scope: last_sentence
 
 epoch_size: 20
 batchsize: 16
