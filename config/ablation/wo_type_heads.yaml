@@ -1,0 +1,66 @@
+# w/o Type Heads（新增）：共享分类头，关掉 claim/noun 分头和翻转辅助 CE
+# python3.9 main_graph.py config/ablation/wo_type_heads.yaml
+
+train_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/train_data.json
+dev_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/dev_data.json
+test_path: /home/chenjiayi/data/csd/raw_with_all_labels_v3/raw_with_global_ids/test_data.json
+embedding_npy: /mnt/data/chenjiayi/csd/qwen_stance/embeddings.npy
+target_knowledge_npy: /mnt/data/chenjiayi/csd/qwen_stance/target_knowledge.npy
+
+hidden_size: 768
+input_size: 0
+num_classes: 3
+dropout: 0.1
+input_dropout: 0.0
+num_layers: 2
+hypergraph_attention: true
+rgcn_num_bases: 0
+use_grounding: true
+use_speaker: 1
+use_dialogue: 1
+use_temporal: 1
+use_reply: 1
+
+cl_lambda: 1.0
+cl_mode: augment
+cl_pos_weight_same_target: 1.0
+cl_pos_weight_diff_target: 0.5
+cl_temperature: 0.2
+cl_feat_mask_rate: 0.2
+cl_noise_scale: 0.1
+cl_proj_dim: 128
+
+bidirectional_temporal: false
+max_nodes_per_target: 0
+
+reply_distillation: 1
+use_reply_distillation: 1
+reply_threshold: 0.05
+use_claim_noun_polarity: false
+use_target_claim_mlp: false
+use_type_heads: false
+opp_lambda: 0.0
+use_sem_struct_fusion: true
+use_sem_residual: true
+use_qwen_skip: true
+use_gated_fusion: true
+
+epoch_size: 20
+batchsize: 16
+patience: 0
+max_grad_norm: 1.0
+warmup_proportion: 0.2
+warmup_steps: 0
+gradient_accumulation_steps: 1
+adam_epsilon: 1.0e-8
+lr: 1.0e-4
+weight_decay: 1.0e-5
+logging_steps: 10
+
+cuda_index: 0
+seed: 1234
+debug: false
+time: ""
+model_type: Ablation_wo_type_heads
+result_root: ./result
+metric_on_last_sentence: true

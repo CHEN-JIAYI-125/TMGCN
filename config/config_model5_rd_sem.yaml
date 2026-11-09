@@ -45,6 +45,9 @@ use_target_claim_mlp: false
 use_type_heads: true
 opp_lambda: 0.3
 use_sem_struct_fusion: true
+use_sem_residual: true
+use_qwen_skip: true
+use_gated_fusion: true
 
 epoch_size: 20
 batchsize: 16

@@ -174,8 +174,8 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
             m_reply = self._reply_message(
                 i, h, reply_candidate_edge_index, reply_edge_weight=reply_edge_weight
             )
-            fused, gate = self.fuse_gates[i](
-                h, [m_spk, m_dlg, m_temp, m_reply], active=active, return_gate=True
+            fused, gate = self._fuse_messages(
+                i, h, [m_spk, m_dlg, m_temp, m_reply], active
             )
             h = self.layer_norms[i](h + fused)
             last_gate = gate

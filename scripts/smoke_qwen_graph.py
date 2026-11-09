@@ -29,6 +29,30 @@ def main():
     assert out['logits'].shape == (3, 3)
     assert fused.classifier[0].in_features == 32  # 4 * hidden
     out['loss'].backward()
+    skip_only = HeterogeneousStanceTracerV5(
+        SimpleNamespace(input_size=16, hidden_size=8, num_layers=1,
+                        use_grounding=True, hypergraph_attention=False,
+                        use_sem_struct_fusion=True, use_sem_residual=False,
+                        use_qwen_skip=True, cl_lambda=0.0)
+    )
+    assert skip_only.classifier[0].in_features == 32
+    assert not hasattr(skip_only, 'sem_res')
+    res_only = HeterogeneousStanceTracerV5(
+        SimpleNamespace(input_size=16, hidden_size=8, num_layers=1,
+                        use_grounding=True, hypergraph_attention=False,
+                        use_sem_struct_fusion=True, use_sem_residual=True,
+                        use_qwen_skip=False, cl_lambda=0.0)
+    )
+    assert res_only.classifier[0].in_features == 24  # 3 * hidden
+    ungated = HeterogeneousStanceTracerV5(
+        SimpleNamespace(input_size=16, hidden_size=8, num_layers=1,
+                        use_grounding=True, hypergraph_attention=False,
+                        use_sem_struct_fusion=True, use_gated_fusion=False,
+                        cl_lambda=0.0)
+    )
+    ungated_out = ungated(**batch)
+    assert ungated_out['logits'].shape == (3, 3)
+    ungated_out['loss'].backward()
     baseline = HeterogeneousStanceTracerV5(SimpleNamespace(hidden_size=8))
     assert isinstance(baseline.input_proj, torch.nn.Identity)
     print('Qwen input/grounding projection and backward smoke passed')

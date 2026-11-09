@@ -385,7 +385,15 @@ class HeterogeneousStanceTracerV5(nn.Module):
         # Residual claim head: claim stance often opposes a related noun target.
         self.use_claim_noun_polarity = bool(getattr(config, "use_claim_noun_polarity", False))
         # Structure from the graph; semantics from the frozen Qwen skip.
-        self.use_sem_struct_fusion = bool(getattr(config, "use_sem_struct_fusion", False))
+        # use_sem_struct_fusion=True turns both residual and skip on unless
+        # the finer flags override them (ablations w/o residual / w/o skip).
+        fusion = bool(getattr(config, "use_sem_struct_fusion", False))
+        sem_res = getattr(config, "use_sem_residual", None)
+        qwen_skip = getattr(config, "use_qwen_skip", None)
+        self.use_sem_struct_fusion = fusion
+        self.use_sem_residual = fusion if sem_res is None else bool(sem_res)
+        self.use_qwen_skip = fusion if qwen_skip is None else bool(qwen_skip)
+        self.use_gated_fusion = bool(getattr(config, "use_gated_fusion", True))
         if self.use_target_claim_mlp and not self.use_grounding:
             raise ValueError("use_target_claim_mlp requires use_grounding=True and target priors")
         if self.use_grounding:
@@ -405,7 +413,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
                 self.pair_gate = nn.Sequential(
                     nn.Linear(self.hidden_size * 2, self.hidden_size), nn.Sigmoid()
                 )
-            n_cat = 4 if self.use_sem_struct_fusion else 3
+            n_cat = 4 if self.use_qwen_skip else 3
             self.classifier = nn.Sequential(
                 nn.Linear(self.hidden_size * n_cat, self.hidden_size),
                 nn.GELU(),
@@ -413,7 +421,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
             )
         else:
             self.grounding = None
-            if self.use_sem_struct_fusion:
+            if self.use_qwen_skip:
                 self.classifier = nn.Sequential(
                     nn.Linear(self.hidden_size * 2, self.hidden_size),
                     nn.GELU(),
@@ -421,7 +429,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
                 )
             else:
                 self.classifier = nn.Linear(self.hidden_size, self.num_classes)
-        if self.use_sem_struct_fusion:
+        if self.use_sem_residual:
             # Zero-init residual so step 0 == graph-only hidden.
             self.sem_res = nn.Sequential(
                 nn.Linear(self.hidden_size, self.hidden_size),
@@ -560,8 +568,8 @@ class HeterogeneousStanceTracerV5(nn.Module):
                 m_dlg = torch.zeros_like(h)
             m_temp = self._temporal_message(i, h, temporal_edge_index)
             m_reply = self._reply_message(i, h, reply_candidate_edge_index)
-            fused, gate = self.fuse_gates[i](
-                h, [m_spk, m_dlg, m_temp, m_reply], active=active, return_gate=True
+            fused, gate = self._fuse_messages(
+                i, h, [m_spk, m_dlg, m_temp, m_reply], active
             )
             h = self.layer_norms[i](h + fused)
             last_gate = gate
@@ -614,9 +622,32 @@ class HeterogeneousStanceTracerV5(nn.Module):
             loss = loss + self.opp_lambda * self.criterion(logits, opp_y)
         return loss
 
+    def _fuse_messages(
+        self,
+        i: int,
+        h: torch.Tensor,
+        messages: List[torch.Tensor],
+        active: List[bool],
+    ):
+        """Relation-aware gated fusion, or a plain sum when that gate is ablated."""
+        if self.use_gated_fusion:
+            return self.fuse_gates[i](h, messages, active=active, return_gate=True)
+        fused = torch.zeros_like(h)
+        n_act = 0
+        for msg, keep in zip(messages, active):
+            if keep:
+                fused = fused + msg
+                n_act += 1
+        gate = torch.zeros((h.size(0), len(messages)), device=h.device, dtype=h.dtype)
+        if n_act:
+            for idx, keep in enumerate(active):
+                if keep:
+                    gate[:, idx] = 1.0 / float(n_act)
+        return fused, gate
+
     def _apply_semantic_residual(self, h: torch.Tensor, x_sem: torch.Tensor) -> torch.Tensor:
         """Add gated original-Qwen residual onto the graph (structure) hidden."""
-        if not self.use_sem_struct_fusion:
+        if not self.use_sem_residual:
             return h
         gate = self.sem_gate(torch.cat([h, x_sem], dim=-1))
         return h + gate * self.sem_res(x_sem)
@@ -672,7 +703,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
             else:
                 feat_h = h
             parts = [feat_h, h_tar, t_nodes]
-            if self.use_sem_struct_fusion:
+            if self.use_qwen_skip:
                 parts.append(x_sem)
             logits = self._predict_logits(torch.cat(parts, dim=-1), kwargs.get("target_type_ids"))
             if self.use_claim_noun_polarity:
@@ -698,7 +729,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
                     claim_mask = (type_ids.view(-1).to(device) == 1).unsqueeze(-1).to(adj.dtype)
                     logits = logits + claim_mask * adj
         else:
-            feat = torch.cat([h, x_sem], dim=-1) if self.use_sem_struct_fusion else h
+            feat = torch.cat([h, x_sem], dim=-1) if self.use_qwen_skip else h
             logits = self._predict_logits(feat, kwargs.get("target_type_ids"))
         return logits, h, h_tar, alpha
 
