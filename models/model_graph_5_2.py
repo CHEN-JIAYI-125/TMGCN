@@ -387,6 +387,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
         # Structure from the graph; semantics from the frozen Qwen skip.
         # use_sem_struct_fusion=True turns both residual and skip on unless
         # the finer flags override them (ablations w/o residual / w/o skip).
+        # Graph only must set BOTH use_sem_residual and use_qwen_skip to false.
         fusion = bool(getattr(config, "use_sem_struct_fusion", False))
         sem_res = getattr(config, "use_sem_residual", None)
         qwen_skip = getattr(config, "use_qwen_skip", None)
