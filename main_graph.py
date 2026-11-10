@@ -437,12 +437,18 @@ def predict_and_evaluate(
     doc_rows: List[Dict[str, Any]] = []
     eval_loss_sum = 0.0
     eval_loss_n = 0
+    reply_edge_n = 0
+    reply_node_n = 0
 
     with torch.no_grad():
         for idx in _iter_with_progress(range(len(dataset)), total=len(dataset), desc=""):
             item = dataset[idx]
             batch = _to_device(target_graph_collate_fn([item]), device)
             output = model(**batch)
+            edge_index = output.get("soft_reply_edge_index")
+            if edge_index is not None and torch.is_tensor(edge_index):
+                reply_edge_n += int(edge_index.size(1))
+                reply_node_n += int(output["logits"].size(0))
             loss = output.get("loss")
             if loss is not None and torch.is_tensor(loss) and torch.isfinite(loss):
                 eval_loss_sum += float(loss.detach().cpu())
@@ -520,6 +526,18 @@ def predict_and_evaluate(
     metrics["prefix"] = prefix
     metrics["eval_loss"] = eval_loss_sum / max(1, eval_loss_n)
     metrics.update(scoped_metrics(y_true_list, y_pred_list, target_types_list, cfg.num_classes))
+    if reply_node_n > 0:
+        metrics["reply_avg_edges_per_node"] = reply_edge_n / float(reply_node_n)
+        metrics["reply_num_edges"] = reply_edge_n
+        metrics["reply_num_nodes"] = reply_node_n
+        logger.info(
+            "%s reply graph | threshold=%.3f | avg_edges/node=%.4f | edges=%d | nodes=%d",
+            prefix.upper(),
+            float(cfg.reply_threshold),
+            metrics["reply_avg_edges_per_node"],
+            reply_edge_n,
+            reply_node_n,
+        )
     _log_scoped_metrics(prefix, metrics)
     return metrics
 
