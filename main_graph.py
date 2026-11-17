@@ -92,6 +92,7 @@ def format_split_line(title: str, loss: float, metrics: Dict[str, Any]) -> str:
     """和 ZS-CSD 终端一致：Epoch N Dev | Loss | Macro F1 | Favor | Against | Neutral。"""
     return (
         f"{title} | Loss: {float(loss):.2f} | Macro F1: {_pct(metrics['mixed_f1_macro'])} | "
+        f"F_avg: {_pct(metrics['mixed_f1_favg'])} | "
         f"Favor: {_pct(metrics['mixed_f1_favor'])} | Against: {_pct(metrics['mixed_f1_against'])} | "
         f"Neutral: {_pct(metrics['mixed_f1_neutral'])}"
     )
@@ -359,6 +360,7 @@ def scoped_metrics(
                     f"{scope_name}_f1_against": 0.0,
                     f"{scope_name}_f1_neutral": 0.0,
                     f"{scope_name}_f1_avg": 0.0,
+                    f"{scope_name}_f1_favg": 0.0,
                     f"{scope_name}_f1_per_class": [0.0] * num_classes,
                     f"{scope_name}_accuracy": 0.0,
                     f"{scope_name}_num": 0,
@@ -375,6 +377,7 @@ def scoped_metrics(
         against = f1_per_class[1] if num_classes > 1 else 0.0
         neutral = f1_per_class[2] if num_classes > 2 else 0.0
         f1_avg = (favor + neutral + against) / 3.0
+        f1_favg = (favor + against) / 2.0
         metrics.update(
             {
                 f"{scope_name}_f1_macro": f1_macro,
@@ -382,6 +385,7 @@ def scoped_metrics(
                 f"{scope_name}_f1_against": float(against),
                 f"{scope_name}_f1_neutral": float(neutral),
                 f"{scope_name}_f1_avg": float(f1_avg),
+                f"{scope_name}_f1_favg": float(f1_favg),
                 f"{scope_name}_f1_per_class": f1_per_class,
                 f"{scope_name}_accuracy": float(accuracy_score(yt, yp)),
                 f"{scope_name}_num": n_scored,
@@ -392,10 +396,11 @@ def scoped_metrics(
 
 def _log_scoped_metrics(prefix: str, metrics: Dict[str, Any]) -> None:
     logger.info(
-        "%s metrics mixed | f1_macro=%.6f | f1_avg=%.6f | accuracy=%.6f | scored=%d",
+        "%s metrics mixed | f1_macro=%.6f | f1_avg=%.6f | f_avg=%.6f | accuracy=%.6f | scored=%d",
         prefix.upper(),
         metrics["mixed_f1_macro"],
         metrics["mixed_f1_avg"],
+        metrics["mixed_f1_favg"],
         metrics["mixed_accuracy"],
         metrics["mixed_num"],
     )

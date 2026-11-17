@@ -26,6 +26,16 @@ STANCE_INSTRUCTION = (
 
 TARGET_INSTRUCTION = "编码该立场对象及其支持或反对观点，用于会话立场分类。"
 
+STANCE_INSTRUCTION_EN = (
+    "Encode the current utterance's attitude toward the target in this conversation. "
+    "The same conversation may take different attitudes toward different targets."
+)
+
+TARGET_INSTRUCTION_EN = (
+    "Encode this stance target and background plus supporting or opposing viewpoints "
+    "for conversational stance classification."
+)
+
 
 def sentence_rows(split_records):
     """Validate the existing global-id mapping before loading expensive weights."""
@@ -67,29 +77,51 @@ def _speaker_tag(speakers, turn):
     return f'speaker_{raw}'
 
 
-def build_utterance_prompt(target, sentences, speakers, turn):
+def _prompt_lang(lang):
+    if str(lang or "zh").lower().startswith("en"):
+        return (
+            STANCE_INSTRUCTION_EN,
+            TARGET_INSTRUCTION_EN,
+            "current utterance",
+            "Target: ",
+            "Conversation:",
+            "Current utterance:",
+        )
+    return (
+        STANCE_INSTRUCTION,
+        TARGET_INSTRUCTION,
+        "当前话语",
+        "目标：",
+        "当前会话：",
+        "当前话语：",
+    )
+
+
+def build_utterance_prompt(target, sentences, speakers, turn, lang="zh"):
     """Qwen3-Embedding Instruct/Query; conversation + current utterance, no gold label."""
+    instruct, _, cur_mark, target_k, conv_k, utt_k = _prompt_lang(lang)
     lines = []
     for i, sent in enumerate(sentences):
-        mark = ' [当前话语]' if i == turn else ''
-        lines.append(f'[{i + 1}] {_speaker_tag(speakers, i)}:{mark} {sent}')
+        mark = " [%s]" % cur_mark if i == turn else ""
+        lines.append(f"[{i + 1}] {_speaker_tag(speakers, i)}:{mark} {sent}")
     query = (
-        f'目标：{target}\n'
-        f'\n'
-        f'当前会话：\n'
-        f'{chr(10).join(lines)}\n'
-        f'\n'
-        f'当前话语：\n'
-        f'{sentences[turn]}'
+        f"{target_k}{target}\n"
+        f"\n"
+        f"{conv_k}\n"
+        f"{chr(10).join(lines)}\n"
+        f"\n"
+        f"{utt_k}\n"
+        f"{sentences[turn]}"
     )
-    return f'Instruct: {STANCE_INSTRUCTION}\nQuery: {query}'
+    return f"Instruct: {instruct}\nQuery: {query}"
 
 
-def build_target_prompt(text):
-    return f'Instruct: {TARGET_INSTRUCTION}\nQuery: {text}'
+def build_target_prompt(text, lang="zh"):
+    instruct = _prompt_lang(lang)[1]
+    return f"Instruct: {instruct}\nQuery: {text}"
 
 
-def collect_utterance_units(split_records):
+def collect_utterance_units(split_records, lang="zh"):
     """One unit per (target, global_id); first occurrence wins (train→dev→test, doc id)."""
     sentence_rows(split_records)
     seen = {}
@@ -112,7 +144,9 @@ def collect_utterance_units(split_records):
                 units.append({
                     'target': target,
                     'gid': int(gid),
-                    'prompt': build_utterance_prompt(target, sentences, speakers, turn),
+                    'prompt': build_utterance_prompt(
+                        target, sentences, speakers, turn, lang=lang
+                    ),
                 })
     if not units:
         raise ValueError('No utterances found')
@@ -225,6 +259,8 @@ def main():
     p.add_argument('--max-length', type=int, default=2048)
     p.add_argument('--dtype', choices=['bf16', 'fp16', 'fp32'], default='bf16')
     p.add_argument('--target-template', default='datasets/target_knowledge_template.json')
+    p.add_argument('--lang', choices=['zh', 'en'], default='zh',
+                   help='prompt language; use en for MT-CSD')
     p.add_argument('--allow-download', action='store_true',
                    help='允许从 HuggingFace 拉权重；默认只读本地目录')
     p.add_argument('--overwrite', action='store_true',
@@ -238,7 +274,7 @@ def main():
     cfg = yaml.safe_load(Path(a.config).read_text(encoding='utf-8'))
     split_paths = [Path(cfg[f'{s}_path']).resolve() for s in ('train', 'dev', 'test')]
     records = [json.loads(path.read_text(encoding='utf-8')) for path in split_paths]
-    units = collect_utterance_units(records)
+    units = collect_utterance_units(records, lang=a.lang)
     targets, views = target_rows(json.loads(Path(a.target_template).read_text(encoding='utf-8')))
     missing = {rec['target'] for split in records for rec in split} - set(targets)
     if missing and cfg.get('use_grounding', False):
@@ -320,7 +356,7 @@ def main():
         json.dumps(units_to_index(units), ensure_ascii=False), encoding='utf-8',
     )
     prior = np.empty((len(views), dim), dtype=np.float32)
-    target_prompts = [build_target_prompt(text) for text in views]
+    target_prompts = [build_target_prompt(text, lang=a.lang) for text in views]
     for start in range(0, len(target_prompts), a.batch_size):
         prior[start:start + a.batch_size] = encode(target_prompts[start:start + a.batch_size])
     np.save(out / 'target_knowledge.npy', prior.reshape(len(targets), 4, dim))
@@ -341,7 +377,7 @@ def main():
         dimension=dim,
         nodes=len(units),
         keyed_by='target,global_id',
-        instruction=STANCE_INSTRUCTION,
+        instruction=STANCE_INSTRUCTION_EN if a.lang == 'en' else STANCE_INSTRUCTION,
         pooling='last_token',
         normalized=True,
         truncated=truncated,

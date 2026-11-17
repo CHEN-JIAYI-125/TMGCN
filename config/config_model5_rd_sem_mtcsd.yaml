@@ -1,0 +1,78 @@
+# ------------------------------------------------------------------
+# 同一套完整模型，换 MT-CSD 做多数据集验证。
+# 官方划分：每目标 train/valid/test 已由 convert_mtcsd.py 写出。
+# 评测单元：每条标注评论 = 该 doc 最后一句（与 GLAN 实例一致）。
+# 论文对照指标：日志里的 F_avg = (F1_favor + F1_against) / 2。
+#
+# 1) git clone https://github.com/nfq729/MT-CSD.git
+# 2) python3.9 offline/convert_mtcsd.py --src ~/MT-CSD/data --out /home/chenjiayi/data/mtcsd/raw_with_global_ids
+# 3) python3.9 offline/build_qwen_graph.py --config config/config_model5_rd_sem_mtcsd.yaml \
+#      --model /path/to/Qwen3-Embedding-8B --output /mnt/data/chenjiayi/csd/qwen_mtcsd \
+#      --lang en --target-template datasets/mtcsd_target_knowledge_template.json \
+#      --device cuda:0 --batch-size 1 --dtype fp16
+# 4) nohup python3.9 -u main_graph.py config/config_model5_rd_sem_mtcsd.yaml > train_mtcsd.log 2>&1 &
+# ------------------------------------------------------------------
+
+train_path: /home/chenjiayi/data/mtcsd/raw_with_global_ids/train_data.json
+dev_path: /home/chenjiayi/data/mtcsd/raw_with_global_ids/dev_data.json
+test_path: /home/chenjiayi/data/mtcsd/raw_with_global_ids/test_data.json
+embedding_npy: /mnt/data/chenjiayi/csd/qwen_mtcsd/embeddings.npy
+target_knowledge_npy: /mnt/data/chenjiayi/csd/qwen_mtcsd/target_knowledge.npy
+
+hidden_size: 768
+input_size: 0
+num_classes: 3
+dropout: 0.1
+input_dropout: 0.0
+num_layers: 2
+hypergraph_attention: true
+rgcn_num_bases: 0
+use_grounding: true
+use_speaker: 1
+use_dialogue: 1
+use_temporal: 1
+use_reply: 1
+
+cl_lambda: 1.0
+cl_mode: augment
+cl_pos_weight_same_target: 1.0
+cl_pos_weight_diff_target: 0.5
+cl_temperature: 0.2
+cl_feat_mask_rate: 0.2
+cl_noise_scale: 0.1
+cl_proj_dim: 128
+
+bidirectional_temporal: false
+max_nodes_per_target: 0
+
+reply_distillation: 1
+use_reply_distillation: 1
+reply_threshold: 0.05
+use_claim_noun_polarity: false
+use_target_claim_mlp: false
+use_type_heads: true
+opp_lambda: 0.3
+use_sem_struct_fusion: true
+use_sem_residual: true
+use_qwen_skip: true
+use_gated_fusion: true
+
+epoch_size: 20
+batchsize: 1
+patience: 0
+max_grad_norm: 1.0
+warmup_proportion: 0.2
+warmup_steps: 0
+gradient_accumulation_steps: 1
+adam_epsilon: 1.0e-8
+lr: 1.0e-4
+weight_decay: 1.0e-5
+logging_steps: 10
+
+cuda_index: 0
+seed: 1234
+debug: false
+time: ""
+model_type: GraphTracer_5_MT_CSD
+result_root: ./result
+metric_on_last_sentence: true

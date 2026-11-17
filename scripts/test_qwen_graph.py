@@ -79,6 +79,19 @@ class MappingTests(unittest.TestCase):
         self.assertIn('没什么用处。', text)
         self.assertNotIn('label', text.lower())
 
+    def test_english_prompt_for_mtcsd(self):
+        text = build_utterance_prompt(
+            'Tesla', ['Cars are expensive.', 'The charging network is good.'],
+            [0, 1], 1, lang='en',
+        )
+        self.assertIn('Target: Tesla', text)
+        self.assertIn('[current utterance]', text)
+        self.assertIn('current utterance', text)
+        self.assertNotIn('Favor', text)
+        self.assertNotIn('Against', text)
+        self.assertNotIn('Neutral', text)
+        self.assertNotIn('label', text.lower())
+
 
 if __name__ == '__main__':
     unittest.main()
