@@ -263,10 +263,7 @@ class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
         loss_stance = None
         if y is not None:
             y = y.view(-1).long().to(logits.device)
-            if (y != IGNORE_LABEL).any():
-                loss_stance = self.criterion(logits, y)
-            else:
-                loss_stance = logits.sum() * 0.0  # keep the graph in autograd
+            loss_stance = self._stance_ce(logits, y, kwargs)
             loss_stance = self._add_opp_loss(loss_stance, logits, kwargs)
 
         loss = loss_stance

@@ -465,6 +465,9 @@ class HeterogeneousStanceTracerV5(nn.Module):
             self.classifier_claim = copy.deepcopy(self.classifier)
         
         self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_LABEL)
+        # Train CE on last-sentence docs so oversampled copies count. Eval
+        # still uses node-level y because this flag is training-only.
+        self.ce_on_doc_final = bool(getattr(config, "ce_on_doc_final", False))
 
         # Representation-level contrastive regularization
         self.cl_lambda = float(getattr(config, "cl_lambda", 0.0))
@@ -605,6 +608,41 @@ class HeterogeneousStanceTracerV5(nn.Module):
             return logits_n
         claim_mask = (type_ids.view(-1).to(device=feat.device) == 1).unsqueeze(-1)
         return torch.where(claim_mask, logits_c, logits_n)
+
+    def set_class_weight(self, weight: Optional[torch.Tensor]) -> None:
+        """Replace CE class weights. ``weight`` is length ``num_classes``."""
+        if weight is None:
+            self.criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_LABEL)
+            return
+        self.criterion = nn.CrossEntropyLoss(
+            weight=weight.float(), ignore_index=IGNORE_LABEL
+        )
+
+    def _stance_ce(
+        self,
+        logits: torch.Tensor,
+        y: torch.Tensor,
+        kwargs: Dict[str, Any],
+    ) -> torch.Tensor:
+        """CE on labeled nodes, or on last-sentence docs when oversampling."""
+        y = y.view(-1).long().to(logits.device)
+        if self.ce_on_doc_final and self.training:
+            doc_idx = kwargs.get("doc_final_node_index", None)
+            doc_true = kwargs.get("doc_final_true", None)
+            if doc_idx is not None and doc_idx.numel() > 0:
+                idx = doc_idx.view(-1).long().to(logits.device)
+                pred = logits.index_select(0, idx)
+                if doc_true is not None and int(doc_true.numel()) == int(idx.numel()):
+                    gold = doc_true.view(-1).long().to(logits.device)
+                else:
+                    gold = y.index_select(0, idx)
+                valid = gold != IGNORE_LABEL
+                if valid.any():
+                    return self.criterion(pred[valid], gold[valid])
+                return logits.sum() * 0.0
+        if (y != IGNORE_LABEL).any():
+            return self.criterion(logits, y)
+        return logits.sum() * 0.0
 
     def _add_opp_loss(
         self,
@@ -772,10 +810,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
         loss = None
         if y is not None:
             y = y.view(-1).long().to(logits.device)
-            if (y != IGNORE_LABEL).any():
-                loss = self.criterion(logits, y)
-            else:
-                loss = logits.sum() * 0.0  # keep the graph in autograd
+            loss = self._stance_ce(logits, y, kwargs)
             loss = self._add_opp_loss(loss, logits, kwargs)
 
         loss_cl = None

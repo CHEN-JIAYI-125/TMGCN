@@ -225,11 +225,15 @@ class TargetGraphDataset(Dataset):
         bidirectional_temporal: bool = False,
         seed: int = 1234,
         target_knowledge_npy: Optional[str] = None,
+        oversample_minority: bool = False,
+        oversample_max_factor: float = 10.0,
     ):
         self.raw_dir = raw_dir
         self.embedding_store = UtteranceEmbeddingStore(embedding_npy)
         self.max_nodes_per_target = max_nodes_per_target
         self.seed = seed
+        self.oversample_minority = bool(oversample_minority)
+        self.oversample_max_factor = float(oversample_max_factor)
 
         knowledge_store = None
         if target_knowledge_npy:
@@ -242,6 +246,15 @@ class TargetGraphDataset(Dataset):
                 )
 
         records = _load_augmented_records(raw_dir)
+        if self.oversample_minority:
+            from datasets.oversample import format_summary, oversample_records, oversample_summary
+
+            before = oversample_summary(records)
+            records = oversample_records(
+                records, seed=self.seed, max_factor=self.oversample_max_factor
+            )
+            logger.info(format_summary("train oversample before", before))
+            logger.info(format_summary("train oversample after", oversample_summary(records)))
         by_target: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for rec in records:
             by_target[rec["target"]].append(rec)

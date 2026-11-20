@@ -197,6 +197,15 @@ class GraphConfig:
     # evaluation: score only the last sentence of each doc_id (official CSD
     # setting). Full per-utterance predictions are still written to CSV.
     metric_on_last_sentence: bool = field(default=True)
+    # Train-only: resample rare (target, class) docs. Does not touch dev/test.
+    oversample_minority: bool = field(default=False)
+    oversample_max_factor: float = field(default=10.0)
+    # Train CE on last-sentence docs so oversampled copies receive gradient.
+    ce_on_doc_final: bool = field(default=False)
+    # "" | "inv_freq"  (sklearn-style balanced class weights)
+    ce_class_weight: str = field(default="")
+    # mixed_f1_macro | mixed_f1_favg | target_favg_mean
+    ckpt_metric: str = field(default="mixed_f1_macro")
 
     # Student 软回复图：0 关 / 1 开（需 models/__init__.py 用 rd 模型）
     reply_distillation: int = field(default=0)
@@ -217,6 +226,37 @@ def load_config(config_path: str) -> GraphConfig:
 def build_model(cfg: GraphConfig):
     # 用哪个模型由 models/__init__.py 决定
     return HeterogeneousStanceTracerV5(cfg)
+
+
+def _ce_class_weight(dataset: Any, num_classes: int, mode: str, use_doc_final: bool):
+    mode = (mode or "").strip().lower()
+    if mode not in ("inv_freq",):
+        return None
+    counts = torch.zeros(num_classes, dtype=torch.float)
+    graphs = getattr(dataset, "graphs", [])
+    for graph in graphs:
+        labs = graph.doc_final_true if use_doc_final else graph.y
+        for lab in labs.tolist():
+            lab = int(lab)
+            if 0 <= lab < num_classes:
+                counts[lab] += 1.0
+    counts = counts.clamp_min(1.0)
+    weight = counts.sum() / (float(num_classes) * counts)
+    logger.info("CE class weight (%s)=%s counts=%s", mode, weight.tolist(), counts.tolist())
+    return weight
+
+
+def checkpoint_score(metrics: Dict[str, Any], name: str) -> float:
+    key = (name or "mixed_f1_macro").strip()
+    if key == "target_favg_mean":
+        names = metrics.get("per_target_names") or []
+        vals = [float(metrics["t_%s_f1_favg" % n]) for n in names]
+        if vals:
+            return float(sum(vals) / len(vals))
+        key = "mixed_f1_favg"
+    if key not in metrics:
+        raise KeyError("ckpt_metric %r not in metrics" % name)
+    return float(metrics[key])
 
 
 def build_dataset(cfg: GraphConfig, split_path: str) -> Any:
@@ -240,6 +280,13 @@ def build_dataset(cfg: GraphConfig, split_path: str) -> Any:
     sig = inspect.signature(TargetGraphDataset.__init__)
     if "target_knowledge_npy" in sig.parameters:
         kwargs["target_knowledge_npy"] = knowledge_npy or None
+    is_train = os.path.normcase(os.path.abspath(split_path)) == os.path.normcase(
+        os.path.abspath(cfg.train_path)
+    )
+    if "oversample_minority" in sig.parameters:
+        kwargs["oversample_minority"] = bool(cfg.oversample_minority) and is_train
+    if "oversample_max_factor" in sig.parameters:
+        kwargs["oversample_max_factor"] = float(cfg.oversample_max_factor)
     ds = TargetGraphDataset(**kwargs)
     if cfg.debug:
         keep = min(len(ds), 40)
@@ -621,6 +668,11 @@ def main():
     )
     model = build_model(cfg)
     model.to(device)
+    class_w = _ce_class_weight(
+        train_dataset, cfg.num_classes, cfg.ce_class_weight, cfg.ce_on_doc_final
+    )
+    if class_w is not None and hasattr(model, "set_class_weight"):
+        model.set_class_weight(class_w.to(device))
     logger.info(
         "model params: %.2fM",
         sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6,
@@ -701,16 +753,26 @@ def main():
         )
         print_split_line(f"Epoch {epoch} Test", test_metrics["eval_loss"], test_metrics)
 
-        dev_f1 = dev_metrics["mixed_f1_macro"]
+        dev_f1 = checkpoint_score(dev_metrics, cfg.ckpt_metric)
         if dev_f1 > best_f1:
             best_f1 = dev_f1
             best_epoch = epoch
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             bad_epochs = 0
-            logger.info("new best dev f1_macro=%.6f (saved, epoch=%d)", dev_f1, epoch)
+            logger.info(
+                "new best dev %s=%.6f (saved, epoch=%d)",
+                cfg.ckpt_metric,
+                dev_f1,
+                epoch,
+            )
         else:
             bad_epochs += 1
-            logger.info("dev f1_macro=%.6f (no improvement, bad_epochs=%d)", dev_f1, bad_epochs)
+            logger.info(
+                "dev %s=%.6f (no improvement, bad_epochs=%d)",
+                cfg.ckpt_metric,
+                dev_f1,
+                bad_epochs,
+            )
 
         # patience<=0：按 epoch_size 跑满，不 early stop
 

@@ -22,9 +22,23 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
+import numpy as np
+import torch
+from sklearn.metrics import confusion_matrix
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from datasets import target_graph_collate_fn  # noqa: E402
+from main_graph import (  # noqa: E402
+    _stance_block,
+    _to_device,
+    build_dataset,
+    build_model,
+    load_config,
+    set_seed,
+)
 
 # Mixed / noun / claim: Favor, Against, Neutral, Macro-F1
 ZSCSD_PUBLISHED = {
@@ -96,10 +110,6 @@ def _block_tuple(block: dict) -> Tuple[float, float, float, float, float]:
 
 
 def collect_last_sentence_rows(model, dataset, device) -> List[dict]:
-    import torch
-    from datasets import target_graph_collate_fn
-    from main_graph import _to_device
-
     model.eval()
     rows: List[dict] = []
     with torch.no_grad():
@@ -137,8 +147,6 @@ def collect_last_sentence_rows(model, dataset, device) -> List[dict]:
 
 
 def subset_block(rows: Sequence[dict], num_classes: int = 3) -> dict:
-    from main_graph import _stance_block
-
     y_true = [r["true"] for r in rows]
     y_pred = [r["pred"] for r in rows]
     return _stance_block(y_true, y_pred, num_classes)
@@ -250,7 +258,7 @@ def print_mtcsd(rows: List[dict]) -> None:
             ),
             flush=True,
         )
-    avg = (sum(cells) / len(cells)) if cells else 0.0
+    avg = float(np.mean(cells)) if cells else 0.0
     print("TMGCN | %s %.2f" % (" ".join("%.2f" % x for x in cells), avg), flush=True)
 
     print("\n=== MT-CSD depth F_avg (1-2 / 3-5 / 6-8), same bins as GLAN Table 7 ===", flush=True)
@@ -275,8 +283,6 @@ def print_mtcsd(rows: List[dict]) -> None:
         latex_tmgcn.extend(ours)
 
     print("\n=== MT-CSD confusion (rows=gold Favor/Against/None, cols=pred) ===", flush=True)
-    from sklearn.metrics import confusion_matrix
-
     for name in MTCSD_GLAN["targets"]:
         sub = [r for r in rows if str(r["target"]) == name]
         if not sub:
@@ -309,9 +315,6 @@ def main() -> None:
             flush=True,
         )
         sys.exit(2)
-    import torch
-    from main_graph import build_dataset, build_model, load_config, set_seed
-
     cfg = load_config(sys.argv[1])
     set_seed(cfg.seed)
     ckpt = torch.load(sys.argv[2], map_location="cpu")

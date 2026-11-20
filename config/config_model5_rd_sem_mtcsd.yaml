@@ -11,6 +11,9 @@
 #      --lang en --target-template datasets/mtcsd_target_knowledge_template.json \
 #      --device cuda:0 --batch-size 1 --dtype fp16
 # 4) nohup python3.9 -u main_graph.py config/config_model5_rd_sem_mtcsd.yaml > train_mtcsd.log 2>&1 &
+#
+# Trump 总量不少，稀的是 Favor。训练集按 target 过采样少数类文档；
+# 训练 CE 走最后一句，选 checkpoint 用五个 target 的 F_avg 均值。
 # ------------------------------------------------------------------
 
 train_path: /home/chenjiayi/data/mtcsd/raw_with_global_ids/train_data.json
@@ -56,6 +59,12 @@ use_sem_struct_fusion: true
 use_sem_residual: true
 use_qwen_skip: true
 use_gated_fusion: true
+
+oversample_minority: true
+oversample_max_factor: 10.0
+ce_on_doc_final: true
+ce_class_weight: inv_freq
+ckpt_metric: target_favg_mean
 
 epoch_size: 20
 batchsize: 1
