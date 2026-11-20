@@ -321,6 +321,40 @@ def utterance_metrics(y_true, y_pred, num_classes: int) -> Dict[str, float]:
 # CSD target-type scopes: "mixed" = all targets, "c" = claim targets,
 # "n" = noun-phrase targets (same口径 as the legacy main_12 evaluator).
 TARGET_TYPE_SCOPES = ("mixed", "c", "n")
+# Official MT-CSD F_avg = (F1_favor + F1_against) / 2. Our ids: 0=favor, 1=against, 2=none.
+
+
+def _stance_block(y_true, y_pred, num_classes: int) -> Dict[str, Any]:
+    """One metric block. F_avg matches nfq729/MT-CSD (favor/against only)."""
+    n_scored = int(len(y_true))
+    if n_scored == 0:
+        return {
+            "f1_macro": 0.0,
+            "f1_favor": 0.0,
+            "f1_against": 0.0,
+            "f1_neutral": 0.0,
+            "f1_avg": 0.0,
+            "f1_favg": 0.0,
+            "f1_per_class": [0.0] * num_classes,
+            "accuracy": 0.0,
+            "num": 0,
+        }
+    f1_macro = float(f1_score(y_true, y_pred, average="macro", zero_division=0.0))
+    f1_per_class = _class_f1s(y_true, y_pred, num_classes)
+    favor = f1_per_class[0] if num_classes > 0 else 0.0
+    against = f1_per_class[1] if num_classes > 1 else 0.0
+    neutral = f1_per_class[2] if num_classes > 2 else 0.0
+    return {
+        "f1_macro": f1_macro,
+        "f1_favor": float(favor),
+        "f1_against": float(against),
+        "f1_neutral": float(neutral),
+        "f1_avg": float((favor + against + neutral) / 3.0),
+        "f1_favg": float((favor + against) / 2.0),
+        "f1_per_class": f1_per_class,
+        "accuracy": float(accuracy_score(y_true, y_pred)),
+        "num": n_scored,
+    }
 
 
 def scoped_metrics(
@@ -351,73 +385,54 @@ def scoped_metrics(
 
     metrics: Dict[str, Any] = {}
     for scope_name, mask in scopes.items():
-        n_scored = int(mask.sum())
-        if n_scored == 0:
-            metrics.update(
-                {
-                    f"{scope_name}_f1_macro": 0.0,
-                    f"{scope_name}_f1_favor": 0.0,
-                    f"{scope_name}_f1_against": 0.0,
-                    f"{scope_name}_f1_neutral": 0.0,
-                    f"{scope_name}_f1_avg": 0.0,
-                    f"{scope_name}_f1_favg": 0.0,
-                    f"{scope_name}_f1_per_class": [0.0] * num_classes,
-                    f"{scope_name}_accuracy": 0.0,
-                    f"{scope_name}_num": 0,
-                }
-            )
-            continue
-
-        yt = y_true_arr[mask]
-        yp = y_pred_arr[mask]
-        f1_macro = float(f1_score(yt, yp, average="macro", zero_division=0.0))
-        f1_per_class = _class_f1s(yt, yp, num_classes)
-        # CSD label convention: 0 = favor, 1 = against, 2 = neutral
-        favor = f1_per_class[0] if num_classes > 0 else 0.0
-        against = f1_per_class[1] if num_classes > 1 else 0.0
-        neutral = f1_per_class[2] if num_classes > 2 else 0.0
-        f1_avg = (favor + neutral + against) / 3.0
-        f1_favg = (favor + against) / 2.0
-        metrics.update(
-            {
-                f"{scope_name}_f1_macro": f1_macro,
-                f"{scope_name}_f1_favor": float(favor),
-                f"{scope_name}_f1_against": float(against),
-                f"{scope_name}_f1_neutral": float(neutral),
-                f"{scope_name}_f1_avg": float(f1_avg),
-                f"{scope_name}_f1_favg": float(f1_favg),
-                f"{scope_name}_f1_per_class": f1_per_class,
-                f"{scope_name}_accuracy": float(accuracy_score(yt, yp)),
-                f"{scope_name}_num": n_scored,
-            }
-        )
+        block = _stance_block(y_true_arr[mask], y_pred_arr[mask], num_classes)
+        metrics.update({f"{scope_name}_{k}": v for k, v in block.items()})
     return metrics
 
 
-def _log_scoped_metrics(prefix: str, metrics: Dict[str, Any]) -> None:
+def per_target_metrics(
+    y_true: List[int],
+    y_pred: List[int],
+    target_names: List[str],
+    num_classes: int,
+) -> Dict[str, Any]:
+    """Official MT-CSD is reported per target (Biden / Bitcoin / SpaceX / Tesla / Trump)."""
+    names = [str(t) for t in target_names]
+    unique = sorted(set(names))
+    out: Dict[str, Any] = {"per_target_names": unique}
+    y_true_arr = np.asarray(y_true, dtype=np.int64)
+    y_pred_arr = np.asarray(y_pred, dtype=np.int64)
+    names_arr = np.asarray(names)
+    for name in unique:
+        mask = names_arr == name
+        block = _stance_block(y_true_arr[mask], y_pred_arr[mask], num_classes)
+        for k, v in block.items():
+            out[f"t_{name}_{k}"] = v
+    return out
+
+
+def _log_one_scope(prefix: str, title: str, metrics: Dict[str, Any], key: str) -> None:
     logger.info(
-        "%s metrics mixed | f1_macro=%.6f | f1_avg=%.6f | f_avg=%.6f | accuracy=%.6f | scored=%d",
+        "%s metrics %s | f1_macro=%.6f | f_avg=%.6f | accuracy=%.6f | "
+        "favor=%.4f | against=%.4f | neutral=%.4f | scored=%d",
         prefix.upper(),
-        metrics["mixed_f1_macro"],
-        metrics["mixed_f1_avg"],
-        metrics["mixed_f1_favg"],
-        metrics["mixed_accuracy"],
-        metrics["mixed_num"],
+        title,
+        metrics[f"{key}_f1_macro"],
+        metrics[f"{key}_f1_favg"],
+        metrics[f"{key}_accuracy"],
+        metrics[f"{key}_f1_favor"],
+        metrics[f"{key}_f1_against"],
+        metrics[f"{key}_f1_neutral"],
+        metrics[f"{key}_num"],
     )
-    for scope in ("c", "n"):
-        logger.info(
-            "%s metrics %s | f1_macro=%.6f | f1_avg=%.6f | accuracy=%.6f | "
-            "favor=%.4f | against=%.4f | neutral=%.4f | scored=%d",
-            prefix.upper(),
-            "claim(c)" if scope == "c" else "noun-phrase(n)",
-            metrics[f"{scope}_f1_macro"],
-            metrics[f"{scope}_f1_avg"],
-            metrics[f"{scope}_accuracy"],
-            metrics[f"{scope}_f1_favor"],
-            metrics[f"{scope}_f1_against"],
-            metrics[f"{scope}_f1_neutral"],
-            metrics[f"{scope}_num"],
-        )
+
+
+def _log_scoped_metrics(prefix: str, metrics: Dict[str, Any]) -> None:
+    _log_one_scope(prefix, "mixed", metrics, "mixed")
+    _log_one_scope(prefix, "claim(c)", metrics, "c")
+    _log_one_scope(prefix, "noun-phrase(n)", metrics, "n")
+    for name in metrics.get("per_target_names") or []:
+        _log_one_scope(prefix, "target(%s)" % name, metrics, "t_%s" % name)
 
 
 def predict_and_evaluate(
@@ -527,10 +542,12 @@ def predict_and_evaluate(
     y_true_list = [r["true"] for r in metric_rows if r["true"] >= 0]
     y_pred_list = [r["pred"] for r in metric_rows if r["true"] >= 0]
     target_types_list = [str(r.get("target_type", "")) for r in metric_rows if r["true"] >= 0]
+    target_names_list = [str(r.get("target", "")) for r in metric_rows if r["true"] >= 0]
     metrics = utterance_metrics(y_true_list, y_pred_list, cfg.num_classes)
     metrics["prefix"] = prefix
     metrics["eval_loss"] = eval_loss_sum / max(1, eval_loss_n)
     metrics.update(scoped_metrics(y_true_list, y_pred_list, target_types_list, cfg.num_classes))
+    metrics.update(per_target_metrics(y_true_list, y_pred_list, target_names_list, cfg.num_classes))
     if reply_node_n > 0:
         metrics["reply_avg_edges_per_node"] = reply_edge_n / float(reply_node_n)
         metrics["reply_num_edges"] = reply_edge_n
