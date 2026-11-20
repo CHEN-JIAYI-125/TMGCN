@@ -206,6 +206,14 @@ class GraphConfig:
     ce_class_weight: str = field(default="")
     # mixed_f1_macro | mixed_f1_favg | target_favg_mean
     ckpt_metric: str = field(default="mixed_f1_macro")
+    # Per-target class offset (zero-init). Helps Biden against vs Trump favor.
+    use_target_class_bias: bool = field(default=False)
+    max_targets: int = field(default=64)
+    # 0 = plain CE. >0 down-weights easy majority (Biden favor / Trump against).
+    focal_gamma: float = field(default=0.0)
+    # Train-only: extra copies of named target graphs each epoch.
+    graph_repeat_names: Any = field(default_factory=list)
+    graph_repeat_times: int = field(default=1)
 
     # Student 软回复图：0 关 / 1 开（需 models/__init__.py 用 rd 模型）
     reply_distillation: int = field(default=0)
@@ -287,14 +295,19 @@ def build_dataset(cfg: GraphConfig, split_path: str) -> Any:
         kwargs["oversample_minority"] = bool(cfg.oversample_minority) and is_train
     if "oversample_max_factor" in sig.parameters:
         kwargs["oversample_max_factor"] = float(cfg.oversample_max_factor)
+    if is_train and "graph_repeat_names" in sig.parameters:
+        kwargs["graph_repeat_names"] = list(cfg.graph_repeat_names or [])
+        kwargs["graph_repeat_times"] = int(cfg.graph_repeat_times)
     ds = TargetGraphDataset(**kwargs)
     if cfg.debug:
-        keep = min(len(ds), 40)
+        keep = min(len(ds.graphs), 40)
         ds.target_ids = ds.target_ids[:keep]
         ds.target_texts = ds.target_texts[:keep]
         if hasattr(ds, "target_types"):
             ds.target_types = ds.target_types[:keep]
         ds.graphs = ds.graphs[:keep]
+        if hasattr(ds, "_rebuild_index"):
+            ds._rebuild_index()
         logger.info("[debug] trimmed dataset to %d target graphs", keep)
     return ds
 

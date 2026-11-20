@@ -65,6 +65,11 @@ oversample_max_factor: 10.0
 ce_on_doc_final: true
 ce_class_weight: inv_freq
 ckpt_metric: target_favg_mean
+use_target_class_bias: true
+focal_gamma: 1.5
+graph_repeat_names:
+  - Biden
+graph_repeat_times: 3
 
 epoch_size: 20
 batchsize: 1

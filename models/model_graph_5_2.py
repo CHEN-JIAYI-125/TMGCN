@@ -468,6 +468,14 @@ class HeterogeneousStanceTracerV5(nn.Module):
         # Train CE on last-sentence docs so oversampled copies count. Eval
         # still uses node-level y because this flag is training-only.
         self.ce_on_doc_final = bool(getattr(config, "ce_on_doc_final", False))
+        self.focal_gamma = float(getattr(config, "focal_gamma", 0.0) or 0.0)
+        self.use_target_class_bias = bool(getattr(config, "use_target_class_bias", False))
+        if self.use_target_class_bias:
+            n_tg = max(8, int(getattr(config, "max_targets", 64)))
+            self.target_class_bias = nn.Embedding(n_tg, self.num_classes)
+            nn.init.zeros_(self.target_class_bias.weight)
+        else:
+            self.target_class_bias = None
 
         # Representation-level contrastive regularization
         self.cl_lambda = float(getattr(config, "cl_lambda", 0.0))
@@ -609,6 +617,19 @@ class HeterogeneousStanceTracerV5(nn.Module):
         claim_mask = (type_ids.view(-1).to(device=feat.device) == 1).unsqueeze(-1)
         return torch.where(claim_mask, logits_c, logits_n)
 
+    def _add_target_class_bias(
+        self, logits: torch.Tensor, kwargs: Dict[str, Any]
+    ) -> torch.Tensor:
+        """Per-target class offset. Zero-init, so the first step matches the shared head."""
+        if self.target_class_bias is None:
+            return logits
+        tid = kwargs.get("target_ids", None)
+        if tid is None or tid.numel() != logits.size(0):
+            return logits
+        cap = self.target_class_bias.num_embeddings - 1
+        tid = tid.view(-1).long().to(logits.device).clamp(0, cap)
+        return logits + self.target_class_bias(tid)
+
     def set_class_weight(self, weight: Optional[torch.Tensor]) -> None:
         """Replace CE class weights. ``weight`` is length ``num_classes``."""
         if weight is None:
@@ -638,11 +659,30 @@ class HeterogeneousStanceTracerV5(nn.Module):
                     gold = y.index_select(0, idx)
                 valid = gold != IGNORE_LABEL
                 if valid.any():
-                    return self.criterion(pred[valid], gold[valid])
+                    return self._ce_or_focal(pred[valid], gold[valid])
                 return logits.sum() * 0.0
         if (y != IGNORE_LABEL).any():
-            return self.criterion(logits, y)
+            return self._ce_or_focal(logits, y)
         return logits.sum() * 0.0
+
+    def _ce_or_focal(self, pred: torch.Tensor, gold: torch.Tensor) -> torch.Tensor:
+        if self.focal_gamma <= 0.0:
+            return self.criterion(pred, gold)
+        weight = getattr(self.criterion, "weight", None)
+        logp = F.log_softmax(pred, dim=-1)
+        nll = F.nll_loss(
+            logp,
+            gold,
+            weight=weight,
+            reduction="none",
+            ignore_index=IGNORE_LABEL,
+        )
+        valid = gold != IGNORE_LABEL
+        if not valid.any():
+            return pred.sum() * 0.0
+        p_t = logp.exp().gather(1, gold.clamp(min=0).unsqueeze(1)).squeeze(1)
+        focal = (1.0 - p_t).clamp(0.0, 1.0).pow(self.focal_gamma) * nll
+        return focal[valid].mean()
 
     def _add_opp_loss(
         self,
@@ -745,6 +785,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
             if self.use_qwen_skip:
                 parts.append(x_sem)
             logits = self._predict_logits(torch.cat(parts, dim=-1), kwargs.get("target_type_ids"))
+            logits = self._add_target_class_bias(logits, kwargs)
             if self.use_claim_noun_polarity:
                 type_ids = kwargs.get("target_type_ids", None)
                 noun_know = kwargs.get("related_noun_knowledge", None)
@@ -770,6 +811,7 @@ class HeterogeneousStanceTracerV5(nn.Module):
         else:
             feat = torch.cat([h, x_sem], dim=-1) if self.use_qwen_skip else h
             logits = self._predict_logits(feat, kwargs.get("target_type_ids"))
+            logits = self._add_target_class_bias(logits, kwargs)
         return logits, h, h_tar, alpha
 
     def forward(

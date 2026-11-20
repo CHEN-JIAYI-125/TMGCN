@@ -227,6 +227,8 @@ class TargetGraphDataset(Dataset):
         target_knowledge_npy: Optional[str] = None,
         oversample_minority: bool = False,
         oversample_max_factor: float = 10.0,
+        graph_repeat_names: Optional[Sequence[str]] = None,
+        graph_repeat_times: int = 1,
     ):
         self.raw_dir = raw_dir
         self.embedding_store = UtteranceEmbeddingStore(embedding_npy)
@@ -234,6 +236,8 @@ class TargetGraphDataset(Dataset):
         self.seed = seed
         self.oversample_minority = bool(oversample_minority)
         self.oversample_max_factor = float(oversample_max_factor)
+        self.graph_repeat_names = [str(x) for x in (graph_repeat_names or [])]
+        self.graph_repeat_times = max(1, int(graph_repeat_times))
 
         knowledge_store = None
         if target_knowledge_npy:
@@ -301,12 +305,34 @@ class TargetGraphDataset(Dataset):
             self.embedding_store.dim,
             ", knowledge dim=%d" % knowledge_store.dim if knowledge_store is not None else "",
         )
+        self._rebuild_index()
+
+    def _rebuild_index(self) -> None:
+        self._index = list(range(len(self.graphs)))
+        extra = self.graph_repeat_times - 1
+        if extra <= 0 or not self.graph_repeat_names:
+            return
+        names = {n.lower() for n in self.graph_repeat_names}
+        added = []
+        for i, text in enumerate(self.target_texts):
+            if str(text).lower() in names:
+                added.extend([i] * extra)
+        if added:
+            self._index.extend(added)
+            logger.info(
+                "graph repeat %s x%d | epoch graphs %d -> %d",
+                self.graph_repeat_names,
+                self.graph_repeat_times,
+                len(self.graphs),
+                len(self._index),
+            )
 
     def __len__(self) -> int:
-        return len(self.graphs)
+        return len(getattr(self, "_index", self.graphs))
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        graph = self.graphs[idx]
+        real = self._index[idx] if hasattr(self, "_index") else idx
+        graph = self.graphs[real]
         if self.max_nodes_per_target is not None and graph.num_nodes > self.max_nodes_per_target:
             rng = random.Random(self.seed + idx)
             selected = self._sample_node_centered(graph, rng)
