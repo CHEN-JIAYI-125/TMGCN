@@ -77,10 +77,19 @@ def main() -> None:
             loss.backward()
             opt.step()
     predict_and_evaluate(model, dev_dataset, cfg, device, prefix="dev", pred_path=None)
-    predict_and_evaluate(model, test_dataset, cfg, device, prefix="test", pred_path=None)
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     epoch_sec = float(time.time() - t0)
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    t_inf = time.time()
+    test_metrics = predict_and_evaluate(
+        model, test_dataset, cfg, device, prefix="test", pred_path=None
+    )
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    infer_sec = float(time.time() - t_inf)
+    n_test = int(test_metrics.get("mixed_num", test_metrics.get("num_nodes", 0)) or 0)
     epochs = max(1, int(cfg.epoch_size))
     train_sec = epoch_sec * epochs
     peak_mb = gpu_peak_mb()
@@ -94,12 +103,15 @@ def main() -> None:
         "training_time_min": round(train_sec / 60.0, 1),
         "epoch_size": epochs,
         "peak_gpu_mem_mb": None if peak_mb is None else round(peak_mb, 1),
+        "test_n": n_test,
+        "infer_test_sec": round(infer_sec, 2),
+        "infer_ms_per_ex": round(1000.0 * infer_sec / max(1, n_test), 2),
         "device": str(device),
         "encoder_frozen_offline": "Qwen3-Embedding-8B ~8.19B",
     }
     print(json.dumps(row, indent=2, ensure_ascii=False), flush=True)
     print(
-        "TABLE | Total: %.2fM | Trainable: %.2fM | Time: %.1f min (%d x %.1fs) | Peak GPU: %s"
+        "TABLE | TMGCN | Total: %.2fM | Trainable: %.2fM | Time: %.1f min (%d x %.1fs) | Peak GPU: %s | Infer: %.2fs (%.2f ms/ex, n=%d)"
         % (
             row["total_params_m"],
             row["trainable_params_m"],
@@ -107,6 +119,9 @@ def main() -> None:
             epochs,
             epoch_sec,
             ("%.1f MB" % peak_mb) if peak_mb is not None else "n/a",
+            infer_sec,
+            row["infer_ms_per_ex"],
+            n_test,
         ),
         flush=True,
     )
