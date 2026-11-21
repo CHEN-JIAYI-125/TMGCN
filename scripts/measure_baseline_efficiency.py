@@ -341,10 +341,21 @@ def run_split(model, loader, train, device):
 
 def resolve_bert(path: str) -> str:
     if path:
-        return path
+        local = Path(path)
+        if local.is_dir() and (
+            (local / "config.json").is_file() or (local / "tokenizer_config.json").is_file()
+        ):
+            return str(local)
+        raise SystemExit(
+            "bert-dir is not a local model folder: %s\n"
+            "ls the directory, or download with:\n"
+            "  HF_ENDPOINT=https://hf-mirror.com huggingface-cli download hfl/chinese-roberta-wwm-ext --local-dir %s"
+            % (path, path)
+        )
     for c in BERT_CANDIDATES:
-        if c.startswith("hfl/") or Path(c).exists():
-            return c
+        local = Path(c)
+        if local.is_dir() and (local / "config.json").is_file():
+            return str(local)
     return BERT_CANDIDATES[-1]
 
 
