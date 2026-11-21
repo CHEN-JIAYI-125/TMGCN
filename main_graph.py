@@ -236,6 +236,23 @@ def build_model(cfg: GraphConfig):
     return HeterogeneousStanceTracerV5(cfg)
 
 
+def count_params(model: torch.nn.Module) -> Dict[str, int]:
+    """Training-graph size. Frozen Qwen encoder is offline and not in ``model``."""
+    total = int(sum(p.numel() for p in model.parameters()))
+    trainable = int(sum(p.numel() for p in model.parameters() if p.requires_grad))
+    return {
+        "total_params": total,
+        "trainable_params": trainable,
+        "frozen_params_in_module": total - trainable,
+    }
+
+
+def gpu_peak_mb() -> Optional[float]:
+    if not torch.cuda.is_available():
+        return None
+    return float(torch.cuda.max_memory_allocated()) / (1024.0 ** 2)
+
+
 def _ce_class_weight(dataset: Any, num_classes: int, mode: str, use_doc_final: bool):
     mode = (mode or "").strip().lower()
     if mode not in ("inv_freq",):
@@ -686,10 +703,17 @@ def main():
     )
     if class_w is not None and hasattr(model, "set_class_weight"):
         model.set_class_weight(class_w.to(device))
+    param_stats = count_params(model)
     logger.info(
-        "model params: %.2fM",
-        sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6,
+        "model params | total=%.2fM | trainable=%.2fM | frozen_in_module=%.2fM "
+        "(Qwen encoder is offline, not in this graph)",
+        param_stats["total_params"] / 1e6,
+        param_stats["trainable_params"] / 1e6,
+        param_stats["frozen_params_in_module"] / 1e6,
     )
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats(device)
+    train_t0 = time.time()
 
     train_loader = DataLoader(
         train_dataset,
@@ -813,12 +837,39 @@ def main():
         test_metrics,
     )
 
+    train_sec = float(time.time() - train_t0)
+    peak_mb = gpu_peak_mb()
+    logger.info(
+        "efficiency | train_wall_sec=%.1f | peak_gpu_mem_mb=%s | total_params=%d | trainable_params=%d",
+        train_sec,
+        ("%.1f" % peak_mb) if peak_mb is not None else "n/a",
+        param_stats["total_params"],
+        param_stats["trainable_params"],
+    )
+    print(
+        "Efficiency | Trainable: %.2fM | Total: %.2fM | Time: %.1fs | Peak GPU: %s"
+        % (
+            param_stats["trainable_params"] / 1e6,
+            param_stats["total_params"] / 1e6,
+            train_sec,
+            ("%.1f MB" % peak_mb) if peak_mb is not None else "n/a",
+        ),
+        flush=True,
+    )
+
     summary = {
         "best_dev_f1_macro": best_f1,
         "best_epoch": best_epoch,
         "dev": dev_metrics,
         "test": test_metrics,
         "config": asdict(cfg),
+        "efficiency": {
+            **param_stats,
+            "train_wall_sec": train_sec,
+            "peak_gpu_mem_mb": peak_mb,
+            "encoder": "Qwen3-Embedding-8B",
+            "encoder_frozen_offline": True,
+        },
     }
     with open(base_dir / "metrics_summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, sort_keys=True, ensure_ascii=False)
