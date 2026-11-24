@@ -1,0 +1,32 @@
+{
+  "Biden": {
+    "description": "Public discussion of US President Joe Biden covering policy, elections, age, and leadership, drawn from Reddit threads.",
+    "favor_reason": "Support often cites experienced governance, social programs, climate policy, and coalition-building in national politics.",
+    "against_reason": "Criticism often cites age, inflation, border policy, and doubts about effectiveness or electability.",
+    "target_type": "n"
+  },
+  "Bitcoin": {
+    "description": "Public discussion of Bitcoin as a cryptocurrency and store of value, including markets, regulation, energy use, and adoption.",
+    "favor_reason": "Support often cites decentralization, inflation hedge narratives, peer-to-peer payments, and long-term adoption.",
+    "against_reason": "Criticism often cites volatility, energy consumption, illicit use, and doubts that it functions as everyday money.",
+    "target_type": "n"
+  },
+  "SpaceX": {
+    "description": "Public discussion of SpaceX covering reusable rockets, Starlink, crewed flight, and commercial spaceflight.",
+    "favor_reason": "Support often cites reusable launch cost reductions, Starlink connectivity, and rapid engineering iteration.",
+    "against_reason": "Criticism often cites debris and spectrum concerns, regulatory fights, and dependence on a single founder-led firm.",
+    "target_type": "n"
+  },
+  "Tesla": {
+    "description": "Public discussion of Tesla covering electric vehicles, Autopilot, manufacturing, and Elon Musk-related company news.",
+    "favor_reason": "Support often cites EV performance, charging network, over-the-air updates, and accelerating electric adoption.",
+    "against_reason": "Criticism often cites build quality, Autopilot safety claims, service issues, and volatility around leadership.",
+    "target_type": "n"
+  },
+  "Trump": {
+    "description": "Public discussion of Donald Trump covering elections, legal cases, rhetoric, and Republican politics.",
+    "favor_reason": "Support often cites economic record, immigration stance, outsider politics, and opposition to established institutions.",
+    "against_reason": "Criticism often cites democratic norms, legal controversies, rhetoric, and policy outcomes opposed by critics.",
+    "target_type": "n"
+  }
+}

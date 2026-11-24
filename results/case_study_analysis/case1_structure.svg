@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 543" width="100%" role="img" aria-label="Case 1 — Cross-speaker thread">
+<defs><marker id="replyArrow1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#5b3a91"/></marker></defs>
+<text x="16" y="22" font-size="14" font-weight="600" fill="#222222">Case 1 — Cross-speaker thread</text>
+<text x="16" y="40" font-size="11" fill="#666666">Target: A man livestreams in a miniskirt · doc 681 · last neutral / neutral</text>
+<text x="16" y="56" font-size="11" fill="#666666">Spk 0.29   Dlg 0.17   Tmp 0.33   Rpl 0.21</text>
+<text x="16" y="72" font-size="11" fill="#666666">sem against · P(prev)=0.25  P(hist)=0.28</text>
+<line x1="470.0" y1="18.0" x2="492.0" y2="18.0" stroke="#2f6f4e" stroke-width="2" fill="none"/>
+<text x="498.0" y="21.0" font-size="10" fill="#222222">Dialogue</text>
+<line x1="470.0" y1="34.0" x2="492.0" y2="34.0" stroke="#1f6f8b" stroke-width="2" fill="none"/>
+<text x="498.0" y="37.0" font-size="10" fill="#222222">Temporal</text>
+<line x1="470.0" y1="50.0" x2="492.0" y2="50.0" stroke="#c45c26" stroke-width="2" fill="none" stroke-dasharray="5 3"/>
+<text x="498.0" y="53.0" font-size="10" fill="#222222">Speaker history</text>
+<line x1="470.0" y1="66.0" x2="492.0" y2="66.0" stroke="#5b3a91" stroke-width="2" fill="none"/>
+<text x="498.0" y="69.0" font-size="10" fill="#222222">Reply P(j|t)</text>
+<path d="M108,88.0 H98 V499.0 H108" fill="none" stroke="#2f6f4e" stroke-width="2"/>
+<text x="16" y="293.5" font-size="10" fill="#2f6f4e">Dialogue</text>
+<path d="M112.0,168.5 C38.0,168.5 38.0,252.0 112.0,252.0" fill="none" stroke="#c45c26" stroke-width="1.6" stroke-dasharray="6 4"/>
+<path d="M112.0,216.0 C48.0,216.0 48.0,288.0 112.0,288.0" fill="none" stroke="#c45c26" stroke-width="1.6" stroke-dasharray="6 4"/>
+<path d="M112.0,288.0 C48.0,288.0 48.0,360.0 112.0,360.0" fill="none" stroke="#c45c26" stroke-width="1.6" stroke-dasharray="6 4"/>
+<path d="M112.0,360.0 C48.0,360.0 48.0,466.0 112.0,466.0" fill="none" stroke="#c45c26" stroke-width="1.6" stroke-dasharray="6 4"/>
+<path d="M112.0,324.0 C58.0,324.0 58.0,403.5 112.0,403.5" fill="none" stroke="#c45c26" stroke-width="1.6" stroke-dasharray="6 4"/>
+<line x1="132.0" y1="135.0" x2="132.0" y2="147.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="190.0" x2="132.0" y2="202.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="230.0" x2="132.0" y2="238.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="266.0" x2="132.0" y2="274.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="302.0" x2="132.0" y2="310.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="338.0" x2="132.0" y2="346.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="374.0" x2="132.0" y2="382.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="425.0" x2="132.0" y2="437.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<rect x="118.0" y="92.0" width="430.0" height="43.0" rx="6" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+<text x="126.0" y="106.0" font-size="10" font-weight="600" fill="#222222">u0 · S0 · Favor</text>
+<text x="126.0" y="122.0" font-size="11" fill="#222222">Is a man in a skirt breaking the law?</text>
+<rect x="118.0" y="147.0" width="430.0" height="43.0" rx="6" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+<text x="126.0" y="161.0" font-size="10" font-weight="600" fill="#222222">u1 · S1 · Against</text>
+<text x="126.0" y="177.0" font-size="11" fill="#222222">The Civil Code.</text>
+<rect x="118.0" y="202.0" width="168.0" height="28.0" rx="6" fill="#d9d9d9" stroke="#8a8a8a" stroke-width="1.1"/>
+<text x="126.0" y="216.0" font-size="10" font-weight="600" fill="#666666">u2 · S10 · Favor</text>
+<rect x="118.0" y="238.0" width="168.0" height="28.0" rx="6" fill="#d9d9d9" stroke="#8a8a8a" stroke-width="1.1"/>
+<text x="126.0" y="252.0" font-size="10" font-weight="600" fill="#666666">u3 · S1 · Neutral</text>
+<rect x="118.0" y="274.0" width="168.0" height="28.0" rx="6" fill="#d9d9d9" stroke="#8a8a8a" stroke-width="1.1"/>
+<text x="126.0" y="288.0" font-size="10" font-weight="600" fill="#666666">u4 · S10 · Favor</text>
+<rect x="118.0" y="310.0" width="168.0" height="28.0" rx="6" fill="#d9d9d9" stroke="#8a8a8a" stroke-width="1.1"/>
+<text x="126.0" y="324.0" font-size="10" font-weight="600" fill="#666666">u5 · S24 · Neutral</text>
+<rect x="118.0" y="346.0" width="168.0" height="28.0" rx="6" fill="#d9d9d9" stroke="#8a8a8a" stroke-width="1.1"/>
+<text x="126.0" y="360.0" font-size="10" font-weight="600" fill="#666666">u6 · S10 · Neutral</text>
+<rect x="118.0" y="382.0" width="430.0" height="43.0" rx="6" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+<text x="126.0" y="396.0" font-size="10" font-weight="600" fill="#222222">u7 · S24 · Neutral</text>
+<text x="126.0" y="412.0" font-size="11" fill="#222222">He backed off to give you face.</text>
+<rect x="118.0" y="437.0" width="430.0" height="58.0" rx="6" fill="#ffffff" stroke="#111111" stroke-width="2.2"/>
+<text x="126.0" y="451.0" font-size="10" font-weight="600" fill="#222222">u8 · S10 · pred · Neutral</text>
+<text x="126.0" y="467.0" font-size="11" fill="#222222">I don't need face. This is law. What's the</text>
+<text x="126.0" y="482.0" font-size="11" fill="#222222">basis? He already quit.</text>
+</svg>

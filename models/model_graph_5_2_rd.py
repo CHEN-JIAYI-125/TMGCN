@@ -1,0 +1,331 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""HeterogeneousStanceTracerV5 + Student 软回复图。
+
+本文件 **继承** ``models.model_graph_5_2.HeterogeneousStanceTracerV5``，不删除
+也不改写 Speaker / Dialogue 超图、Temporal RGCN、Gated Fusion、Target
+Grounding、Contrastive Learning。只替换回复通道：
+
+    冻结句向量 x
+        → Student ReplyPredictor → P_S(j|t)
+        → 阈值化得到 soft_reply_edge_index / edge_weight
+        → Reply RGCN(node, edge_index, edge_weight)
+        → 与其它三路一起 gated fusion
+
+没有 LLM Teacher，也没有 KL。开关 ``reply_distillation=False``（默认）时：
+    - 不创建 Student 参数；
+    - ``forward`` 直接调用父类，回复边仍是等权 candidate 图。
+"""
+
+from __future__ import annotations
+
+import inspect
+from typing import Any, Dict, Optional
+
+import torch
+import torch.nn.functional as F
+
+from models.model_graph_5_2 import (
+    IGNORE_LABEL,
+    HeterogeneousStanceTracerV5,
+    _info_nce,
+    _supcon_loss,
+)
+from modules.reply_distillation import (
+    ReplyPredictor,
+    build_soft_reply_graph,
+)
+
+
+def _rel0_linear(conv: Any, x: torch.Tensor) -> torch.Tensor:
+    """取出 RGCNConv 第 0 个关系的线性变换，兼容 PyG 2.3–2.6。"""
+    weight = getattr(conv, "weight", None)
+    if weight is not None:
+        w = weight[0] if weight.dim() == 3 else weight
+        return x.matmul(w)
+    for name in ("lin", "comp"):
+        lin = getattr(conv, name, None)
+        if lin is not None and callable(lin):
+            return lin(x)
+    raise RuntimeError("当前 RGCNConv 没有可用的关系权重，无法做加权聚合")
+
+
+def _root_linear(conv: Any, x: torch.Tensor) -> torch.Tensor:
+    root = getattr(conv, "root", None)
+    if root is not None:
+        if root.dim() == 2:
+            return x.matmul(root)
+        return x + root
+    lin_root = getattr(conv, "lin_root", None)
+    if lin_root is not None:
+        return lin_root(x)
+    return torch.zeros_like(x)
+
+
+def _weighted_rgcn_mean(
+    conv: Any,
+    h: torch.Tensor,
+    edge_index: torch.Tensor,
+    edge_weight: torch.Tensor,
+) -> torch.Tensor:
+    """旧版 RGCNConv 不接受 edge_weight 时：message = w_e * (x_j @ W)，再按入度取均值。
+
+    与 PyG 2.6 在 ``aggr='mean'`` 且传入 ``edge_weight`` 时的行为一致。
+    """
+    src, dst = edge_index[0], edge_index[1]
+    msg = _rel0_linear(conv, h[src]) * edge_weight.unsqueeze(-1)
+    out = torch.zeros(h.size(0), msg.size(-1), device=h.device, dtype=h.dtype)
+    out.index_add_(0, dst, msg)
+    deg = torch.zeros(h.size(0), device=h.device, dtype=h.dtype)
+    deg.index_add_(0, dst, torch.ones_like(edge_weight))
+    out = out / deg.clamp_min(1.0).unsqueeze(-1)
+    out = out + _root_linear(conv, h)
+    bias = getattr(conv, "bias", None)
+    if bias is not None:
+        out = out + bias
+    return out
+
+
+class HeterogeneousStanceTracerV5RD(HeterogeneousStanceTracerV5):
+    """在 v5 四通道融合之上，把 Reply 通道换成概率回复图。"""
+
+    def __init__(self, config):
+        super().__init__(config)
+        # 两个名字是同一总开关：yaml 里写 reply_distillation 或 use_reply_distillation 均可
+        self.reply_distillation = bool(
+            getattr(config, "reply_distillation", False)
+            or getattr(config, "use_reply_distillation", False)
+        )
+        self.reply_threshold = float(getattr(config, "reply_threshold", 0.05))
+        self.reply_predictor: Optional[ReplyPredictor] = None
+        if self.reply_distillation:
+            self.reply_predictor = ReplyPredictor(
+                hidden_size=self.hidden_size,
+                dropout=self.dropout,
+            )
+
+    # ------------------------------------------------------------------
+    # Reply RGCN：在父类基础上增加 edge_weight
+    # ------------------------------------------------------------------
+    def _reply_message(
+        self,
+        i: int,
+        h: torch.Tensor,
+        reply_candidate_edge_index: torch.Tensor,
+        reply_edge_weight: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Reply 通道消息。关闭蒸馏时不传 edge_weight，与父类逐算子等价。
+
+        开启 Soft Reply Graph 时，``edge_weight`` 为 ``P(j|t)``，PyG RGCNConv
+        会在 message 里把 ``x_j`` 乘上该权重，从而让高回复概率的 antecedent
+        对当前话语贡献更大。
+        """
+        if not self.use_reply or reply_candidate_edge_index.size(1) == 0:
+            return torch.zeros_like(h)
+        edge_type = torch.zeros(
+            reply_candidate_edge_index.size(1), dtype=torch.long, device=h.device
+        )
+        conv = self.reply_convs[i]
+        if reply_edge_weight is None:
+            return conv(h, reply_candidate_edge_index, edge_type)
+        weight = reply_edge_weight.to(device=h.device, dtype=h.dtype).reshape(-1)
+        if weight.numel() != reply_candidate_edge_index.size(1):
+            raise RuntimeError(
+                "reply edge_weight 长度 (%d) 与边数 (%d) 不一致"
+                % (int(weight.numel()), int(reply_candidate_edge_index.size(1)))
+            )
+        # 新版 PyG 的 RGCNConv 支持 edge_weight；服务器上的旧版没有这个参数。
+        if "edge_weight" in inspect.signature(conv.forward).parameters:
+            return conv(h, reply_candidate_edge_index, edge_type, edge_weight=weight)
+        return _weighted_rgcn_mean(conv, h, reply_candidate_edge_index, weight)
+
+    def _encode(
+        self,
+        x: torch.Tensor,
+        speaker_hyperedge_index: torch.Tensor,
+        dialogue_hyperedge_index: torch.Tensor,
+        temporal_edge_index: torch.Tensor,
+        reply_candidate_edge_index: torch.Tensor,
+        reply_edge_weight: Optional[torch.Tensor] = None,
+    ):
+        """与父类相同的四通道堆叠，仅 Reply 通道多了 ``reply_edge_weight``。"""
+        h = x
+        m_spk = m_dlg = m_temp = m_reply = torch.zeros_like(x)
+        active = [self.use_speaker, self.use_dialogue, self.use_temporal, self.use_reply]
+        last_gate = None
+        for i in range(self.num_layers):
+            if self.use_speaker and speaker_hyperedge_index.size(1) > 0:
+                m_spk = self.speaker_convs[i](
+                    h,
+                    speaker_hyperedge_index,
+                    hyperedge_attr=self._hyperedge_attr(h, speaker_hyperedge_index),
+                )
+            else:
+                m_spk = torch.zeros_like(h)
+            if self.use_dialogue and dialogue_hyperedge_index.size(1) > 0:
+                m_dlg = self.dialogue_convs[i](
+                    h,
+                    dialogue_hyperedge_index,
+                    hyperedge_attr=self._hyperedge_attr(h, dialogue_hyperedge_index),
+                )
+            else:
+                m_dlg = torch.zeros_like(h)
+            m_temp = self._temporal_message(i, h, temporal_edge_index)
+            m_reply = self._reply_message(
+                i, h, reply_candidate_edge_index, reply_edge_weight=reply_edge_weight
+            )
+            fused, gate = self._fuse_messages(
+                i, h, [m_spk, m_dlg, m_temp, m_reply], active
+            )
+            h = self.layer_norms[i](h + fused)
+            last_gate = gate
+        return h, m_spk, m_dlg, m_temp, m_reply, last_gate
+
+    def _build_reply_graph_from_probs(
+        self,
+        probs: torch.Tensor,
+        valid_hist: Optional[torch.Tensor],
+    ):
+        """阈值化 Student 概率，得到 Reply RGCN 的边与边权。"""
+        return build_soft_reply_graph(
+            probs, threshold=self.reply_threshold, valid_hist=valid_hist
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        y: Optional[torch.Tensor] = None,
+        speaker_hyperedge_index: Optional[torch.Tensor] = None,
+        dialogue_hyperedge_index: Optional[torch.Tensor] = None,
+        temporal_edge_index: Optional[torch.Tensor] = None,
+        reply_candidate_edge_index: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        # ---- 总开关关闭：父类前向，结果与 baseline 逐张量等价 ----
+        if not self.reply_distillation:
+            output = super().forward(
+                x=x,
+                y=y,
+                speaker_hyperedge_index=speaker_hyperedge_index,
+                dialogue_hyperedge_index=dialogue_hyperedge_index,
+                temporal_edge_index=temporal_edge_index,
+                reply_candidate_edge_index=reply_candidate_edge_index,
+                return_dict=True,
+                **kwargs,
+            )
+            output["stance_loss"] = output.get("loss")
+            output["total_loss"] = output.get("loss")
+            if not return_dict:
+                return output["logits"]
+            return output
+
+        device = x.device
+        x = self.input_proj(x)
+        # Student 必须看 dropout 之前的冻结句向量，图结构才稳定，
+        # 也避免 Reply RGCN 的输入与 Student 输入互相依赖。
+        student_in = x
+        x_sem = x
+        if self.input_dropout > 0:
+            x = F.dropout(x, p=self.input_dropout, training=self.training)
+
+        if speaker_hyperedge_index is None:
+            speaker_hyperedge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+        if dialogue_hyperedge_index is None:
+            dialogue_hyperedge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+        if temporal_edge_index is None:
+            temporal_edge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+        if reply_candidate_edge_index is None:
+            reply_candidate_edge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+
+        reply_edge_index = reply_candidate_edge_index
+        reply_edge_weight = None
+        p_s = valid_hist = None
+        if self.reply_predictor is not None:
+            p_s, _, valid_hist = self.reply_predictor(
+                student_in, candidate_edge_index=reply_candidate_edge_index
+            )
+            reply_edge_index, reply_edge_weight = self._build_reply_graph_from_probs(
+                p_s, valid_hist
+            )
+
+        h, m_spk, m_dlg, m_temp, m_reply, fusion_gate = self._encode(
+            x,
+            speaker_hyperedge_index,
+            dialogue_hyperedge_index,
+            temporal_edge_index,
+            reply_edge_index,
+            reply_edge_weight=reply_edge_weight,
+        )
+
+        logits, h, h_tar, alpha = self._decode_stance(h, x_sem, kwargs)
+
+        loss_stance = None
+        if y is not None:
+            y = y.view(-1).long().to(logits.device)
+            loss_stance = self._stance_ce(logits, y, kwargs)
+            loss_stance = self._add_opp_loss(loss_stance, logits, kwargs)
+
+        loss = loss_stance
+        loss_cl = None
+        doc_final_node_index = kwargs.get("doc_final_node_index", None)
+        if (
+            self.training
+            and self.cl_lambda > 0.0
+            and y is not None
+            and doc_final_node_index is not None
+            and doc_final_node_index.numel() >= 2
+        ):
+            anchors = torch.unique(doc_final_node_index.view(-1).long())
+            if self.cl_mode == "augment":
+                h1 = self._perturb_h(h[anchors])
+                h2 = self._perturb_h(h[anchors])
+                z1 = F.normalize(self.proj_head(h1), dim=-1)
+                z2 = F.normalize(self.proj_head(h2), dim=-1)
+                loss_cl = _info_nce(z1, z2, self.cl_temperature)
+            else:
+                y_anchors = y[anchors]
+                target_ids = kwargs.get("target_ids", None)
+                if target_ids is None:
+                    raise RuntimeError(
+                        "cl_mode='supcon' requires target_ids in the batch "
+                        "(the collate function must keep graph-level target ids)"
+                    )
+                group = target_ids.view(-1).long()[anchors]
+                z = F.normalize(self.proj_head(h[anchors]), dim=-1)
+                same_group = group.view(-1, 1) == group.view(1, -1)
+                loss_cl = _supcon_loss(
+                    z=z,
+                    labels=y_anchors.long(),
+                    same_group=same_group,
+                    temperature=self.cl_temperature,
+                    w_same_target=self.cl_pos_weight_same_target,
+                    w_diff_target=self.cl_pos_weight_diff_target,
+                )
+            loss = loss + self.cl_lambda * loss_cl
+
+        output = {
+            "loss": loss,
+            "stance_loss": loss_stance.detach() if loss_stance is not None else None,
+            "total_loss": loss.detach() if loss is not None else None,
+            "loss_contrastive": loss_cl.detach() if loss_cl is not None else None,
+            "logits": logits,
+            "labels": y if y is not None else None,
+            "h_spk": m_spk,
+            "h_dlg": m_dlg,
+            "h_temp": m_temp,
+            "h_reply": m_reply,
+            "h_graph": m_temp + m_reply,
+            "fusion_gate": fusion_gate,
+            "h_trace": h,
+            "h_target": h_tar,
+            "target_alpha": alpha,
+            "reply_probs": p_s.detach() if p_s is not None else None,
+            "soft_reply_edge_index": reply_edge_index.detach() if reply_edge_index is not None else None,
+            "soft_reply_edge_weight": (
+                reply_edge_weight.detach() if reply_edge_weight is not None else None
+            ),
+        }
+        if return_dict:
+            return output
+        return logits

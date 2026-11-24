@@ -1,0 +1,719 @@
+{
+  "cases": [
+    {
+      "case_id": 1,
+      "doc_id": 681,
+      "role": "Cross-speaker thread",
+      "title": "Case 1 — Cross-speaker thread",
+      "target_en": "A man livestreams in a miniskirt",
+      "target_zh": "男子穿短裙丝袜街边直播",
+      "gold_name": "neutral",
+      "pred_name": "neutral",
+      "relation_importance": {
+        "speaker": 0.2912,
+        "dialogue": 0.1658,
+        "temporal": 0.3345,
+        "reply": 0.2084
+      },
+      "target_semantic_preference": {
+        "background": 0.2961,
+        "favor": 0.3246,
+        "against": 0.3793
+      },
+      "reply_analysis": {
+        "prob_immediate_previous": 0.2516,
+        "max_history_prob": 0.2809,
+        "prob_root": 0.0
+      },
+      "utterances": [
+        {
+          "turn": 0,
+          "utterance_id": 0,
+          "node_index": -1,
+          "speaker_id": 0,
+          "gold_turn_name": "favor",
+          "text": "男的穿丝袜短裙会触犯什么法律吗？",
+          "text_en": "Is a man in a skirt breaking the law?"
+        },
+        {
+          "turn": 1,
+          "utterance_id": 1,
+          "node_index": -1,
+          "speaker_id": 1,
+          "gold_turn_name": "against",
+          "text": "有一个东西叫民法典",
+          "text_en": "The Civil Code."
+        },
+        {
+          "turn": 2,
+          "utterance_id": 2,
+          "node_index": -1,
+          "speaker_id": 10,
+          "gold_turn_name": "favor",
+          "text": "可是民法典里面规定的内容不应该是法院来决定的吗，警察怎么会根据民法典规定内容执法呢，不应该是治安管理处罚法或者刑法吗",
+          "text_en": "Police do not enforce the Civil Code."
+        },
+        {
+          "turn": 3,
+          "utterance_id": 3,
+          "node_index": -1,
+          "speaker_id": 1,
+          "gold_turn_name": "neutral",
+          "text": "我不知道说什么好，给我整不会了，哎，还是您自己体会吧",
+          "text_en": "Work it out yourself."
+        },
+        {
+          "turn": 4,
+          "utterance_id": 4,
+          "node_index": -1,
+          "speaker_id": 10,
+          "gold_turn_name": "favor",
+          "text": "我就是公安啊，我真不知道我怎么体会，你要是知道你告诉一下我呗，民法典里面对高空抛物有提到公安要参与，但是最后涉事还是要用治安管理处罚法或者刑法，其余的民法典里面规定的适用于公安执法吗？",
+          "text_en": "I am police. Does the Civil Code cover other policing?"
+        },
+        {
+          "turn": 5,
+          "utterance_id": 5,
+          "node_index": -1,
+          "speaker_id": 24,
+          "gold_turn_name": "neutral",
+          "text": "您是警察那就被别人普及一下呗，要么非要在这阴阳怪气",
+          "text_en": "If you are police, listen instead of being sarcastic."
+        },
+        {
+          "turn": 6,
+          "utterance_id": 6,
+          "node_index": -1,
+          "speaker_id": 10,
+          "gold_turn_name": "neutral",
+          "text": "我就是在讨论啊，哪里有阴阳怪气……是他让我自己体会啊，倒是你上来就会指责人",
+          "text_en": "I am discussing, not being sarcastic."
+        },
+        {
+          "turn": 7,
+          "utterance_id": 7,
+          "node_index": -1,
+          "speaker_id": 24,
+          "gold_turn_name": "neutral",
+          "text": "他是见你披着警察这套皮不和您争辩，您自己都搬出来了，能不给您个面子嘛！？",
+          "text_en": "He backed off to give you face."
+        },
+        {
+          "turn": 8,
+          "utterance_id": 8,
+          "node_index": -1,
+          "speaker_id": 10,
+          "gold_turn_name": "neutral",
+          "text": "我要这面子有什么用，我觉得这是学术这是法律问题，不是面子问题，是他自己在各种杠，大家给他普法他听吗？合理讨论有人参与吗？那你可以说说啊，这里有什么法律依据…且现在他是不回复吗，他是已经不回复所有人了",
+          "text_en": "I don't need face. This is law. What's the basis? He already quit."
+        }
+      ],
+      "expand_turns": [
+        0,
+        1,
+        7,
+        8
+      ],
+      "temporal_edges": [
+        {
+          "src_turn": 0,
+          "dst_turn": 1
+        },
+        {
+          "src_turn": 1,
+          "dst_turn": 2
+        },
+        {
+          "src_turn": 2,
+          "dst_turn": 3
+        },
+        {
+          "src_turn": 3,
+          "dst_turn": 4
+        },
+        {
+          "src_turn": 4,
+          "dst_turn": 5
+        },
+        {
+          "src_turn": 5,
+          "dst_turn": 6
+        },
+        {
+          "src_turn": 6,
+          "dst_turn": 7
+        },
+        {
+          "src_turn": 7,
+          "dst_turn": 8
+        }
+      ],
+      "speaker_edges": [
+        {
+          "src_turn": 1,
+          "dst_turn": 3,
+          "speaker_id": 1
+        },
+        {
+          "src_turn": 2,
+          "dst_turn": 4,
+          "speaker_id": 10
+        },
+        {
+          "src_turn": 4,
+          "dst_turn": 6,
+          "speaker_id": 10
+        },
+        {
+          "src_turn": 6,
+          "dst_turn": 8,
+          "speaker_id": 10
+        },
+        {
+          "src_turn": 5,
+          "dst_turn": 7,
+          "speaker_id": 24
+        }
+      ],
+      "reply_edges": [],
+      "dialogue_members": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "reply_source": "pending_extract"
+    },
+    {
+      "case_id": 2,
+      "doc_id": 2563,
+      "role": "Speaker history",
+      "title": "Case 2 — Speaker history",
+      "target_en": "Must delete the ex after a breakup",
+      "target_zh": "分手后一定要删除对方",
+      "gold_name": "neutral",
+      "pred_name": "neutral",
+      "relation_importance": {
+        "speaker": 0.3083,
+        "dialogue": 0.1736,
+        "temporal": 0.3002,
+        "reply": 0.2179
+      },
+      "target_semantic_preference": {
+        "background": 0.7555,
+        "favor": 0.0535,
+        "against": 0.191
+      },
+      "reply_analysis": {
+        "prob_immediate_previous": 0.1427,
+        "max_history_prob": 0.3577,
+        "prob_root": 0.0001
+      },
+      "utterances": [
+        {
+          "turn": 0,
+          "utterance_id": 0,
+          "node_index": -1,
+          "speaker_id": 0,
+          "gold_turn_name": "favor",
+          "text": "为什么不删？留着膈应现任吗",
+          "text_en": "Why keep the chat? To annoy the new partner?"
+        },
+        {
+          "turn": 1,
+          "utterance_id": 1,
+          "node_index": -1,
+          "speaker_id": 4,
+          "gold_turn_name": "against",
+          "text": "不觉得删了，反而很难走出来吗？没删反而把他给忘了，一干二净了。",
+          "text_en": "Deleting makes it harder to move on."
+        },
+        {
+          "turn": 2,
+          "utterance_id": 2,
+          "node_index": -1,
+          "speaker_id": 12,
+          "gold_turn_name": "against",
+          "text": "我是觉得会删的人就是知道自己忍不住会去找前任和了解他的近况",
+          "text_en": "People who delete still want to check on the ex."
+        },
+        {
+          "turn": 3,
+          "utterance_id": 3,
+          "node_index": -1,
+          "speaker_id": 4,
+          "gold_turn_name": "against",
+          "text": "删了就感觉好像是我还离不开他一样。不删，我会忘得快。",
+          "text_en": "Deleting feels like I still cannot let go."
+        },
+        {
+          "turn": 4,
+          "utterance_id": 4,
+          "node_index": -1,
+          "speaker_id": 21,
+          "gold_turn_name": "favor",
+          "text": "删了才是离开的一干二净啊",
+          "text_en": "Deleting is a clean break."
+        },
+        {
+          "turn": 5,
+          "utterance_id": 5,
+          "node_index": -1,
+          "speaker_id": 4,
+          "gold_turn_name": "against",
+          "text": "既然说分手了，就是会一干二净呀，为什么会觉得有了微信就会有还会有复合呢。反正我是分的很干净的，只要一说分手，我绝不会再找复合。",
+          "text_en": "A breakup is already a clean break. I never go back."
+        },
+        {
+          "turn": 6,
+          "utterance_id": 6,
+          "node_index": -1,
+          "speaker_id": 21,
+          "gold_turn_name": "favor",
+          "text": "那就删了呗，既然不会复合，心里都不占了，还占那个内存干啥",
+          "text_en": "Then delete it. Why keep the chat?"
+        },
+        {
+          "turn": 7,
+          "utterance_id": 7,
+          "node_index": -1,
+          "speaker_id": 4,
+          "gold_turn_name": "neutral",
+          "text": "会删，但不会马上说分手就删，因为我分手，不会吵吵闹闹的。因为都是我先说的分手。",
+          "text_en": "I will delete, but not the second we break up."
+        },
+        {
+          "turn": 8,
+          "utterance_id": 8,
+          "node_index": -1,
+          "speaker_id": 21,
+          "gold_turn_name": "neutral",
+          "text": "可以可以删其实也可以很安静的删，不一定吵吵闹闹，还有，先分手的也不代表是占上风或者先放下那个不能代表什么",
+          "text_en": "Saying it first is not winning."
+        },
+        {
+          "turn": 9,
+          "utterance_id": 9,
+          "node_index": -1,
+          "speaker_id": 4,
+          "gold_turn_name": "neutral",
+          "text": "没有那么想，先说分手就沾上风。分手我们都是很和平的，分手我都是说清楚我们分手的原因我们存在什么问题。不会因为说什么我先说的分手而感到怎么样这样子。",
+          "text_en": "I don't see it as winning. We split calmly. I just said why."
+        }
+      ],
+      "expand_turns": [
+        0,
+        1,
+        9
+      ],
+      "temporal_edges": [
+        {
+          "src_turn": 0,
+          "dst_turn": 1
+        },
+        {
+          "src_turn": 1,
+          "dst_turn": 2
+        },
+        {
+          "src_turn": 2,
+          "dst_turn": 3
+        },
+        {
+          "src_turn": 3,
+          "dst_turn": 4
+        },
+        {
+          "src_turn": 4,
+          "dst_turn": 5
+        },
+        {
+          "src_turn": 5,
+          "dst_turn": 6
+        },
+        {
+          "src_turn": 6,
+          "dst_turn": 7
+        },
+        {
+          "src_turn": 7,
+          "dst_turn": 8
+        },
+        {
+          "src_turn": 8,
+          "dst_turn": 9
+        }
+      ],
+      "speaker_edges": [
+        {
+          "src_turn": 1,
+          "dst_turn": 3,
+          "speaker_id": 4
+        },
+        {
+          "src_turn": 3,
+          "dst_turn": 5,
+          "speaker_id": 4
+        },
+        {
+          "src_turn": 5,
+          "dst_turn": 7,
+          "speaker_id": 4
+        },
+        {
+          "src_turn": 7,
+          "dst_turn": 9,
+          "speaker_id": 4
+        },
+        {
+          "src_turn": 4,
+          "dst_turn": 6,
+          "speaker_id": 21
+        },
+        {
+          "src_turn": 6,
+          "dst_turn": 8,
+          "speaker_id": 21
+        }
+      ],
+      "reply_edges": [],
+      "dialogue_members": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "reply_source": "pending_extract"
+    },
+    {
+      "case_id": 3,
+      "doc_id": 2201,
+      "role": "Long-range reply",
+      "title": "Case 3 — Long-range reply",
+      "target_en": "Opposing Jiang Ge's mother",
+      "target_zh": "反对江歌妈妈",
+      "gold_name": "neutral",
+      "pred_name": "neutral",
+      "relation_importance": {
+        "speaker": 0.305,
+        "dialogue": 0.1874,
+        "temporal": 0.2769,
+        "reply": 0.2307
+      },
+      "target_semantic_preference": {
+        "background": 0.2341,
+        "favor": 0.634,
+        "against": 0.1319
+      },
+      "reply_analysis": {
+        "prob_immediate_previous": 0.0541,
+        "max_history_prob": 0.417,
+        "prob_root": 0.0001
+      },
+      "utterances": [
+        {
+          "turn": 0,
+          "utterance_id": 0,
+          "node_index": -1,
+          "speaker_id": 0,
+          "gold_turn_name": "against",
+          "text": "总不能受害者就必须一辈子活在阴影里，一直可怜兮兮的样子吧，不偷不抢，不拿过去的事吸引热度挣钱，挺好的",
+          "text_en": "A victim need not stay pitiful forever."
+        },
+        {
+          "turn": 1,
+          "utterance_id": 1,
+          "node_index": -1,
+          "speaker_id": 3,
+          "gold_turn_name": "favor",
+          "text": "千万的善款不能养活她吗？还要多少？",
+          "text_en": "Can't the donations support her?"
+        },
+        {
+          "turn": 2,
+          "utterance_id": 2,
+          "node_index": -1,
+          "speaker_id": 4,
+          "gold_turn_name": "against",
+          "text": "？？？？？没看人家捐款？？？？？？？？？？？",
+          "text_en": "Did you not see that she donated?"
+        },
+        {
+          "turn": 3,
+          "utterance_id": 3,
+          "node_index": -1,
+          "speaker_id": 3,
+          "gold_turn_name": "neutral",
+          "text": "想看捐款截图关注我私发给你，给你看小部分你不震撼我都不信。这里评论不让贴图",
+          "text_en": "I can send screenshots privately."
+        },
+        {
+          "turn": 4,
+          "utterance_id": 4,
+          "node_index": -1,
+          "speaker_id": 4,
+          "gold_turn_name": "against",
+          "text": "还有你的理解能力有误，我回复你的意思是江歌妈妈对外捐款了",
+          "text_en": "I meant she donated to others."
+        },
+        {
+          "turn": 5,
+          "utterance_id": 5,
+          "node_index": -1,
+          "speaker_id": 3,
+          "gold_turn_name": "favor",
+          "text": "你的理解能力也差，我说的是她捐给公益组织的69万，是刘鑫给他的赔偿款，善款一分没捐，看懂了吗？",
+          "text_en": "She donated compensation, not the public funds."
+        },
+        {
+          "turn": 6,
+          "utterance_id": 6,
+          "node_index": -1,
+          "speaker_id": 25,
+          "gold_turn_name": "against",
+          "text": "这你都能喷也是可以的，巴不得苦命人一辈子命苦，终日以泪洗面，坏人逍遥法外就是对的是吧？你管她拿的是什么钱捐的，捐了是真，捐多少还配你管了",
+          "text_en": "Why attack this? Who is the villain here?"
+        },
+        {
+          "turn": 7,
+          "utterance_id": 7,
+          "node_index": -1,
+          "speaker_id": 3,
+          "gold_turn_name": "neutral",
+          "text": "谁是坏人搞清楚了没？搞清楚再来说话",
+          "text_en": "Who is the villain? Get that straight first."
+        }
+      ],
+      "expand_turns": [
+        1,
+        5,
+        7
+      ],
+      "temporal_edges": [
+        {
+          "src_turn": 0,
+          "dst_turn": 1
+        },
+        {
+          "src_turn": 1,
+          "dst_turn": 2
+        },
+        {
+          "src_turn": 2,
+          "dst_turn": 3
+        },
+        {
+          "src_turn": 3,
+          "dst_turn": 4
+        },
+        {
+          "src_turn": 4,
+          "dst_turn": 5
+        },
+        {
+          "src_turn": 5,
+          "dst_turn": 6
+        },
+        {
+          "src_turn": 6,
+          "dst_turn": 7
+        }
+      ],
+      "speaker_edges": [
+        {
+          "src_turn": 1,
+          "dst_turn": 3,
+          "speaker_id": 3
+        },
+        {
+          "src_turn": 3,
+          "dst_turn": 5,
+          "speaker_id": 3
+        },
+        {
+          "src_turn": 5,
+          "dst_turn": 7,
+          "speaker_id": 3
+        },
+        {
+          "src_turn": 2,
+          "dst_turn": 4,
+          "speaker_id": 4
+        }
+      ],
+      "reply_edges": [],
+      "dialogue_members": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "reply_source": "pending_extract"
+    },
+    {
+      "case_id": 4,
+      "doc_id": 1288,
+      "role": "Implicit stance",
+      "title": "Case 4 — Implicit stance",
+      "target_en": "Disliking Wu Yanni",
+      "target_zh": "不喜欢吴艳妮",
+      "gold_name": "neutral",
+      "pred_name": "neutral",
+      "relation_importance": {
+        "speaker": 0.2957,
+        "dialogue": 0.1603,
+        "temporal": 0.3359,
+        "reply": 0.2081
+      },
+      "target_semantic_preference": {
+        "background": 0.1902,
+        "favor": 0.174,
+        "against": 0.6358
+      },
+      "reply_analysis": {
+        "prob_immediate_previous": 0.1976,
+        "max_history_prob": 0.2776,
+        "prob_root": 0.0001
+      },
+      "utterances": [
+        {
+          "turn": 0,
+          "utterance_id": 0,
+          "node_index": -1,
+          "speaker_id": 0,
+          "gold_turn_name": "against",
+          "text": "能站在赛场就很棒了",
+          "text_en": "Just making the field is already great."
+        },
+        {
+          "turn": 1,
+          "utterance_id": 1,
+          "node_index": -1,
+          "speaker_id": 14,
+          "gold_turn_name": "favor",
+          "text": "那国足站在赛场上，棒不棒？",
+          "text_en": "Then men's football too? Great?"
+        },
+        {
+          "turn": 2,
+          "utterance_id": 2,
+          "node_index": -1,
+          "speaker_id": 16,
+          "gold_turn_name": "against",
+          "text": "站在奥运会赛场了吗，真逆天",
+          "text_en": "Did they make the Olympics?"
+        },
+        {
+          "turn": 3,
+          "utterance_id": 3,
+          "node_index": -1,
+          "speaker_id": 14,
+          "gold_turn_name": "neutral",
+          "text": "08年就站了啊，还进了个球呢",
+          "text_en": "They did in 2008, and scored."
+        },
+        {
+          "turn": 4,
+          "utterance_id": 4,
+          "node_index": -1,
+          "speaker_id": 16,
+          "gold_turn_name": "against",
+          "text": "说这届奥运会呢你扯什么08年不过也是哈，男足也就那么一两次能扯",
+          "text_en": "This Olympics. Men's football has little to brag about."
+        },
+        {
+          "turn": 5,
+          "utterance_id": 5,
+          "node_index": -1,
+          "speaker_id": 26,
+          "gold_turn_name": "favor",
+          "text": "拿小众赛道跟大众赛道比，你没事吧？",
+          "text_en": "Don't compare a niche event with football."
+        },
+        {
+          "turn": 6,
+          "utterance_id": 6,
+          "node_index": -1,
+          "speaker_id": 16,
+          "gold_turn_name": "neutral",
+          "text": "？说什么呢你 是我先开始比较的吗",
+          "text_en": "What? Did I start that comparison?"
+        }
+      ],
+      "expand_turns": [
+        0,
+        5,
+        6
+      ],
+      "temporal_edges": [
+        {
+          "src_turn": 0,
+          "dst_turn": 1
+        },
+        {
+          "src_turn": 1,
+          "dst_turn": 2
+        },
+        {
+          "src_turn": 2,
+          "dst_turn": 3
+        },
+        {
+          "src_turn": 3,
+          "dst_turn": 4
+        },
+        {
+          "src_turn": 4,
+          "dst_turn": 5
+        },
+        {
+          "src_turn": 5,
+          "dst_turn": 6
+        }
+      ],
+      "speaker_edges": [
+        {
+          "src_turn": 1,
+          "dst_turn": 3,
+          "speaker_id": 14
+        },
+        {
+          "src_turn": 2,
+          "dst_turn": 4,
+          "speaker_id": 16
+        },
+        {
+          "src_turn": 4,
+          "dst_turn": 6,
+          "speaker_id": 16
+        }
+      ],
+      "reply_edges": [],
+      "dialogue_members": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "reply_source": "pending_extract"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 437" width="100%" role="img" aria-label="Case 4 — Implicit stance">
+<defs><marker id="replyArrow4" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#5b3a91"/></marker></defs>
+<text x="16" y="22" font-size="14" font-weight="600" fill="#222222">Case 4 — Implicit stance</text>
+<text x="16" y="40" font-size="11" fill="#666666">Target: Disliking Wu Yanni · doc 1288 · last neutral / neutral</text>
+<text x="16" y="56" font-size="11" fill="#666666">Spk 0.30   Dlg 0.16   Tmp 0.34   Rpl 0.21</text>
+<text x="16" y="72" font-size="11" fill="#666666">sem against · P(prev)=0.20  P(hist)=0.28</text>
+<line x1="470.0" y1="18.0" x2="492.0" y2="18.0" stroke="#2f6f4e" stroke-width="2" fill="none"/>
+<text x="498.0" y="21.0" font-size="10" fill="#222222">Dialogue</text>
+<line x1="470.0" y1="34.0" x2="492.0" y2="34.0" stroke="#1f6f8b" stroke-width="2" fill="none"/>
+<text x="498.0" y="37.0" font-size="10" fill="#222222">Temporal</text>
+<line x1="470.0" y1="50.0" x2="492.0" y2="50.0" stroke="#c45c26" stroke-width="2" fill="none" stroke-dasharray="5 3"/>
+<text x="498.0" y="53.0" font-size="10" fill="#222222">Speaker history</text>
+<line x1="470.0" y1="66.0" x2="492.0" y2="66.0" stroke="#5b3a91" stroke-width="2" fill="none"/>
+<text x="498.0" y="69.0" font-size="10" fill="#222222">Reply P(j|t)</text>
+<path d="M108,88.0 H98 V393.0 H108" fill="none" stroke="#2f6f4e" stroke-width="2"/>
+<text x="16" y="240.5" font-size="10" fill="#2f6f4e">Dialogue</text>
+<path d="M112.0,161.0 C38.0,161.0 38.0,233.0 112.0,233.0" fill="none" stroke="#c45c26" stroke-width="1.6" stroke-dasharray="6 4"/>
+<path d="M112.0,197.0 C48.0,197.0 48.0,269.0 112.0,269.0" fill="none" stroke="#c45c26" stroke-width="1.6" stroke-dasharray="6 4"/>
+<path d="M112.0,269.0 C48.0,269.0 48.0,367.5 112.0,367.5" fill="none" stroke="#c45c26" stroke-width="1.6" stroke-dasharray="6 4"/>
+<line x1="132.0" y1="135.0" x2="132.0" y2="147.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="175.0" x2="132.0" y2="183.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="211.0" x2="132.0" y2="219.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="247.0" x2="132.0" y2="255.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="283.0" x2="132.0" y2="291.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<line x1="132.0" y1="334.0" x2="132.0" y2="346.0" stroke="#1f6f8b" stroke-width="1.4"/>
+<rect x="118.0" y="92.0" width="430.0" height="43.0" rx="6" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+<text x="126.0" y="106.0" font-size="10" font-weight="600" fill="#222222">u0 · S0 · Against</text>
+<text x="126.0" y="122.0" font-size="11" fill="#222222">Just making the field is already great.</text>
+<rect x="118.0" y="147.0" width="168.0" height="28.0" rx="6" fill="#d9d9d9" stroke="#8a8a8a" stroke-width="1.1"/>
+<text x="126.0" y="161.0" font-size="10" font-weight="600" fill="#666666">u1 · S14 · Favor</text>
+<rect x="118.0" y="183.0" width="168.0" height="28.0" rx="6" fill="#d9d9d9" stroke="#8a8a8a" stroke-width="1.1"/>
+<text x="126.0" y="197.0" font-size="10" font-weight="600" fill="#666666">u2 · S16 · Against</text>
+<rect x="118.0" y="219.0" width="168.0" height="28.0" rx="6" fill="#d9d9d9" stroke="#8a8a8a" stroke-width="1.1"/>
+<text x="126.0" y="233.0" font-size="10" font-weight="600" fill="#666666">u3 · S14 · Neutral</text>
+<rect x="118.0" y="255.0" width="168.0" height="28.0" rx="6" fill="#d9d9d9" stroke="#8a8a8a" stroke-width="1.1"/>
+<text x="126.0" y="269.0" font-size="10" font-weight="600" fill="#666666">u4 · S16 · Against</text>
+<rect x="118.0" y="291.0" width="430.0" height="43.0" rx="6" fill="#ffffff" stroke="#333333" stroke-width="1.2"/>
+<text x="126.0" y="305.0" font-size="10" font-weight="600" fill="#222222">u5 · S26 · Favor</text>
+<text x="126.0" y="321.0" font-size="11" fill="#222222">Don't compare a niche event with football.</text>
+<rect x="118.0" y="346.0" width="430.0" height="43.0" rx="6" fill="#ffffff" stroke="#111111" stroke-width="2.2"/>
+<text x="126.0" y="360.0" font-size="10" font-weight="600" fill="#222222">u6 · S16 · pred · Neutral</text>
+<text x="126.0" y="376.0" font-size="11" fill="#222222">What? Did I start that comparison?</text>
+</svg>
