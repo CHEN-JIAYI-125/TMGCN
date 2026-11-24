@@ -1,0 +1,7 @@
+numpy
+torch
+scikit-learn
+tqdm
+sentence-transformers>=3.0.0
+transformers>=4.51.0
+accelerate

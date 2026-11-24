@@ -1,0 +1,28 @@
+{
+  "best_epoch": 1,
+  "best_dev_f1_macro": 0.3333333333333333,
+  "test": {
+    "mixed_f1_macro": 0.3333333333333333,
+    "mixed_f1_favor": 1.0,
+    "mixed_f1_against": 0.0,
+    "mixed_f1_neutral": 0.0,
+    "mixed_accuracy": 0.5,
+    "mixed_num": 2,
+    "c_f1_macro": 0.0,
+    "c_f1_favor": 0.0,
+    "c_f1_against": 0.0,
+    "c_f1_neutral": 0.0,
+    "c_accuracy": 0.0,
+    "c_num": 1,
+    "n_f1_macro": 1.0,
+    "n_f1_favor": 1.0,
+    "n_f1_against": 0.0,
+    "n_f1_neutral": 0.0,
+    "n_accuracy": 1.0,
+    "n_num": 1
+  },
+  "classifier": "mlp",
+  "unit": "last_sentence",
+  "embedding_model": "Qwen/Qwen3-Embedding-0.6B",
+  "seed": 1234
+}

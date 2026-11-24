@@ -1,0 +1,20 @@
+[
+  {
+    "id": 11,
+    "target": "Sora",
+    "target_type": "c",
+    "label": 0,
+    "speakers": [0, 1],
+    "sentences": ["Sora 演示很震撼。", "我也看好它的创作潜力。"],
+    "all_labels": [0, 0]
+  },
+  {
+    "id": 12,
+    "target": "电动车",
+    "target_type": "n",
+    "label": 1,
+    "speakers": [3, 4],
+    "sentences": ["电动车续航不行。", "冬天掉得更快。"],
+    "all_labels": [1, 1]
+  }
+]

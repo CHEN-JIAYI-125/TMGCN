@@ -1,0 +1,22 @@
+[
+  {
+    "conversation_id": 21,
+    "source_index": 0,
+    "turn_index": 0,
+    "label": 2,
+    "target": "Sora",
+    "target_type": "c",
+    "n_turns": 1,
+    "n_tokens": null
+  },
+  {
+    "conversation_id": 22,
+    "source_index": 1,
+    "turn_index": 1,
+    "label": 0,
+    "target": "电动车",
+    "target_type": "n",
+    "n_turns": 2,
+    "n_tokens": null
+  }
+]

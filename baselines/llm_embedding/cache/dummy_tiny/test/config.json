@@ -1,0 +1,20 @@
+{
+  "model": "Qwen/Qwen3-Embedding-0.6B",
+  "backend": "dummy",
+  "unit": "last_sentence",
+  "batch_size": 1,
+  "max_length": 2048,
+  "dtype": "bf16",
+  "device": "cpu",
+  "overflow": "truncate",
+  "normalize": true,
+  "seed": 1234,
+  "dummy": true,
+  "embedding_dim": 32,
+  "label_granularity": "last_sentence_of_conversation",
+  "embedding_granularity": "one_vector_per_full_conversation",
+  "split": "test",
+  "source_file": "C:\\Users\\33535\\OneDrive\\Desktop\\TMGCN(chenjiayi)(1)\\baselines\\llm_embedding\\fixtures\\tiny_split\\test_data.json",
+  "n_json_records": 2,
+  "n_rows": 2
+}
